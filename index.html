@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lessie Bea Bookkeeping CRM</title>
+  <style>
+    :root{
+      --bg:#fff7fb;
+      --card:#ffffff;
+      --accent:#c2185b;
+      --accent2:#f8bbd0;
+      --text:#2d1b24;
+      --muted:#7a5b68;
+      --line:#f1c9d7;
+      --good:#1b8f4d;
+      --bad:#b3261e;
+      --warn:#9a6700;
+      --shadow:0 10px 24px rgba(194,24,91,.08);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Arial, Helvetica, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+    header{
+      padding:20px;
+      background:linear-gradient(135deg,#ffe4ef,#fff);
+      border-bottom:1px solid var(--line);
+      position:sticky;
+      top:0;
+      z-index:10;
+    }
+    .topbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      max-width:1200px;
+      margin:0 auto;
+    }
+    h1{
+      margin:0;
+      font-size:28px;
+    }
+    .sub{
+      color:var(--muted);
+      font-size:14px;
+      margin-top:4px;
+    }
+    .container{
+      max-width:1200px;
+      margin:20px auto;
+      padding:0 16px 40px;
+    }
+    .nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-bottom:18px;
+    }
+    button{
+      border:none;
+      background:var(--accent);
+      color:#fff;
+      padding:10px 14px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:700;
+      box-shadow:var(--shadow);
+    }
+    button.secondary{
+      background:#fff;
+      color:var(--accent);
+      border:1px solid var(--accent2);
+    }
+    button.warn{background:var(--warn)}
+    button.good{background:var(--good)}
+    button.bad{background:var(--bad)}
+    button.small-btn{
+      padding:7px 10px;
+      font-size:12px;
+      box-shadow:none;
+    }
+    .grid{
+      display:grid;
+      gap:16px;
+    }
+    .grid-4{
+      grid-template-columns:repeat(4,minmax(0,1fr));
+    }
+    .grid-3{
+      grid-template-columns:repeat(3,minmax(0,1fr));
+    }
+    .grid-2{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      padding:18px;
+      box-shadow:var(--shadow);
+    }
+    .kpi{
+      font-size:28px;
+      font-weight:800;
+      margin-top:6px;
+    }
+    .label{
+      color:var(--muted);
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+    }
+    .section{display:none}
+    .section.active{display:block}
+    h2{
+      margin:0 0 12px;
+      font-size:22px;
+    }
+    h3{
+      margin:0 0 10px;
+      font-size:18px;
+    }
+    .form-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    label{
+      display:block;
+      font-size:13px;
+      color:var(--muted);
+      margin-bottom:6px;
+      font-weight:700;
+    }
+    input, select, textarea{
+      width:100%;
+      padding:11px 12px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:#fff;
+      font-size:14px;
+      color:var(--text);
+    }
+    textarea{
+      min-height:88px;
+      resize:vertical;
+    }
+    .full{grid-column:1 / -1}
+    .row-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      background:#fff;
+      border-radius:14px;
+      overflow:hidden;
+    }
+    th, td{
+      border-bottom:1px solid #f7dce6;
+      padding:10px 8px;
+      text-align:left;
+      vertical-align:top;
+      font-size:14px;
+    }
+    th{
+      background:#fff0f6;
+      color:#6c3550;
+      position:sticky;
+      top:0;
+    }
+    .table-wrap{
+      overflow:auto;
+      border:1px solid var(--line);
+      border-radius:16px;
+    }
+    .pill{
+      display:inline-block;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:700;
+      background:#fff1f5;
+      color:var(--accent);
+      border:1px solid var(--accent2);
+    }
+    .pill.good{
+      background:#e8f7ef;
+      color:var(--good);
+      border-color:#b8e5ca;
+    }
+    .pill.warn{
+      background:#fff6df;
+      color:var(--warn);
+      border-color:#f3ddb0;
+    }
+    .pill.bad{
+      background:#fdeceb;
+      color:var(--bad);
+      border-color:#f3c5c2;
+    }
+    .muted{color:var(--muted)}
+    .small{font-size:12px}
+    .right{text-align:right}
+    .receipt-link{
+      color:var(--accent);
+      text-decoration:none;
+      font-weight:700;
+    }
+    .footer-note{
+      margin-top:16px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .search-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-bottom:10px;
+    }
+    .search-row input, .search-row select{
+      max-width:240px;
+    }
+    .check-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .check-item{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      padding:10px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#fff;
+    }
+    .check-item input[type="checkbox"]{
+      width:auto;
+      margin-top:2px;
+      transform:scale(1.2);
+    }
+    .toolbar{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .warning-box{
+      padding:12px;
+      border:1px solid #f3ddb0;
+      background:#fff8e8;
+      border-radius:12px;
+      color:#7a5b00;
+      font-size:13px;
+    }
+    @media (max-width: 900px){
+      .grid-4,.grid-3,.grid-2,.form-grid,.check-grid{
+        grid-template-columns:1fr;
+      }
+      h1{font-size:24px}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div>
+        <h1>💰 Lessie Bea Bookkeeping CRM</h1>
+        <div class="sub">Personal laptop version • no login • saved in this browser</div>
+      </div>
+      <div class="toolbar">
+        <button class="secondary" onclick="exportBackup()">Export Backup</button>
+        <button class="secondary" onclick="document.getElementById('importFile').click()">Import Backup</button>
+        <button class="bad" onclick="clearAllData()">Clear All Data</button>
+        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importBackup(event)">
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="warning-box">
+      This version is for personal use on your laptop only. Your data is saved in this browser. Export a backup often so you do not lose your records.
+    </div>
+
+    <div class="nav" style="margin-top:16px;">
+      <button onclick="showSection('dashboard')">Dashboard</button>
+      <button onclick="showSection('income')">Income</button>
+      <button onclick="showSection('expenses')">Expenses</button>
+      <button onclick="showSection('bills')">Bills</button>
+      <button onclick="showSection('receipts')">Receipts</button>
+      <button onclick="showSection('tax')">Tax Summary</button>
+      <button onclick="showSection('taxChecklist')">Tax Checklist</button>
+    </div>
+
+    <section id="dashboard" class="section active">
+      <div class="grid grid-4">
+        <div class="card">
+          <div class="label">Income YTD</div>
+          <div class="kpi" id="kpiIncome">$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Expenses YTD</div>
+          <div class="kpi" id="kpiExpenses">$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Estimated Profit</div>
+          <div class="kpi" id="kpiProfit">$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Unpaid Bills</div>
+          <div class="kpi" id="kpiBills">$0.00</div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="card">
+          <h2>Quick Add Income</h2>
+          <div class="form-grid">
+            <div>
+              <label>Date</label>
+              <input type="date" id="incomeDate">
+            </div>
+            <div>
+              <label>Amount</label>
+              <input type="number" step="0.01" id="incomeAmount" placeholder="0.00">
+            </div>
+            <div>
+              <label>Source</label>
+              <input type="text" id="incomeSource" placeholder="Shopify, Wholesale, YouTube">
+            </div>
+            <div>
+              <label>Category</label>
+              <select id="incomeCategory">
+                <option value="Product Sales">Product Sales</option>
+                <option value="Wholesale Assignment">Wholesale Assignment</option>
+                <option value="YouTube">YouTube</option>
+                <option value="Refund">Refund</option>
+                <option value="Other Income">Other Income</option>
+              </select>
+            </div>
+            <div class="full">
+              <label>Notes</label>
+              <textarea id="incomeNotes" placeholder="Optional notes"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <button onclick="saveIncome()">Save Income</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Quick Add Expense + Receipt</h2>
+          <div class="form-grid">
+            <div>
+              <label>Date</label>
+              <input type="date" id="expDate">
+            </div>
+            <div>
+              <label>Amount</label>
+              <input type="number" step="0.01" id="expAmount" placeholder="0.00">
+            </div>
+            <div>
+              <label>Vendor</label>
+              <input type="text" id="expVendor" placeholder="Shell, PropWire, USPS">
+            </div>
+            <div>
+              <label>Category</label>
+              <select id="expCategory">
+                <option value="Inventory">Inventory</option>
+                <option value="Shipping">Shipping</option>
+                <option value="Supplies">Supplies</option>
+                <option value="Marketing">Marketing</option>
+                <option value="Lead Lists">Lead Lists</option>
+                <option value="Skip Tracing">Skip Tracing</option>
+                <option value="Gas">Gas</option>
+                <option value="Phone / Internet">Phone / Internet</option>
+                <option value="Software">Software</option>
+                <option value="Office">Office</option>
+                <option value="Meals">Meals</option>
+                <option value="Travel">Travel</option>
+                <option value="Other Expense">Other Expense</option>
+              </select>
+            </div>
+            <div>
+              <label>Business</label>
+              <select id="expBusiness">
+                <option value="Mr. & Mrs. Cornstarch Hardies">Mr. & Mrs. Cornstarch Hardies</option>
+                <option value="Blands Real Estate Investors">Blands Real Estate Investors</option>
+                <option value="Personal">Personal</option>
+              </select>
+            </div>
+            <div>
+              <label>Receipt</label>
+              <input type="file" id="receiptFile" accept="image/*,.pdf">
+            </div>
+            <div class="full">
+              <label>Notes</label>
+              <textarea id="expNotes" placeholder="Optional notes"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <button onclick="saveExpense()">Save Expense</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="card">
+          <h2>Recent Income</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Source</th>
+                  <th>Category</th>
+                  <th class="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody id="recentIncomeBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Upcoming Bills</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bill</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                  <th class="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody id="upcomingBillsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="income" class="section">
+      <div class="card">
+        <h2>Income Tracker</h2>
+        <div class="search-row">
+          <input type="text" id="incomeSearch" placeholder="Search income..." oninput="renderIncomeTable()">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Source</th>
+                <th>Category</th>
+                <th>Notes</th>
+                <th class="right">Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="incomeTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="expenses" class="section">
+      <div class="card">
+        <h2>Expense Tracker</h2>
+        <div class="search-row">
+          <input type="text" id="expenseSearch" placeholder="Search expenses..." oninput="renderExpensesTable()">
+          <select id="expenseBusinessFilter" onchange="renderExpensesTable()">
+            <option value="">All Businesses</option>
+            <option value="Mr. & Mrs. Cornstarch Hardies">Mr. & Mrs. Cornstarch Hardies</option>
+            <option value="Blands Real Estate Investors">Blands Real Estate Investors</option>
+            <option value="Personal">Personal</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Vendor</th>
+                <th>Category</th>
+                <th>Business</th>
+                <th>Receipt</th>
+                <th>Notes</th>
+                <th class="right">Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="expensesTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="bills" class="section">
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Add Bill</h2>
+          <div class="form-grid">
+            <div>
+              <label>Bill Name</label>
+              <input type="text" id="billName" placeholder="Twilio, Internet, Shopify Capital">
+            </div>
+            <div>
+              <label>Amount</label>
+              <input type="number" step="0.01" id="billAmount" placeholder="0.00">
+            </div>
+            <div>
+              <label>Due Date</label>
+              <input type="date" id="billDueDate">
+            </div>
+            <div>
+              <label>Status</label>
+              <select id="billStatus">
+                <option value="Unpaid">Unpaid</option>
+                <option value="Paid">Paid</option>
+                <option value="Partial">Partial</option>
+              </select>
+            </div>
+            <div class="full">
+              <label>Notes</label>
+              <textarea id="billNotes" placeholder="Optional notes"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <button onclick="saveBill()">Save Bill</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Bill Tips</h2>
+          <div class="muted">
+            Track recurring bills like phone, internet, domain, software, Shopify Capital, and any monthly business tools.
+            Mark them paid as soon as you pay them so you always know what is still due.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>Bills Tracker</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bill</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Notes</th>
+                <th class="right">Amount</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="billsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="receipts" class="section">
+      <div class="card">
+        <h2>Receipt Gallery</h2>
+        <div class="search-row">
+          <input type="text" id="receiptSearch" placeholder="Search vendor or category..." oninput="renderReceipts()">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Vendor</th>
+                <th>Category</th>
+                <th>Business</th>
+                <th>Receipt</th>
+                <th class="right">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="receiptsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tax" class="section">
+      <div class="grid grid-3">
+        <div class="card">
+          <div class="label">Income YTD</div>
+          <div class="kpi" id="taxIncome">$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Expenses YTD</div>
+          <div class="kpi" id="taxExpenses">$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Net Profit</div>
+          <div class="kpi" id="taxProfit">$0.00</div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="card">
+          <h2>Estimated Taxes</h2>
+          <div class="form-grid">
+            <div>
+              <label>Estimated Tax Rate %</label>
+              <input type="number" id="taxRate" step="0.1" value="15.3" oninput="updateTaxSummary()">
+            </div>
+            <div>
+              <label>Estimated Tax Due</label>
+              <input type="text" id="estimatedTaxDue" readonly>
+            </div>
+          </div>
+          <div class="footer-note">
+            This is only a rough estimate, not a tax return.
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Category Breakdown</h2>
+          <div id="categoryBreakdown" class="muted">No expense data yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="taxChecklist" class="section">
+      <div class="card">
+        <h2>Self-Employed Tax Filing Checklist</h2>
+        <div class="muted" style="margin-bottom:14px;">
+          Check these off each year so you stay ready for taxes.
+        </div>
+        <div id="taxChecklistBox" class="check-grid"></div>
+      </div>
+    </section>
+
+    <div class="footer-note">
+      Tip: save this file on your laptop and use Export Backup often.
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEYS = {
+      income: "lb_bookkeeping_income",
+      expenses: "lb_bookkeeping_expenses",
+      bills: "lb_bookkeeping_bills",
+      checklist: "lb_bookkeeping_tax_checklist"
+    };
+
+    const TAX_CHECKLIST_ITEMS = [
+      "All business income entered for the year",
+      "All business expenses entered for the year",
+      "Receipts uploaded for major expenses",
+      "1099-K forms collected",
+      "1099-NEC forms collected",
+      "1099-MISC forms collected",
+      "Bank statements reviewed",
+      "Business credit card statements reviewed",
+      "Mileage or gas/travel records reviewed",
+      "Phone and internet business-use expenses reviewed",
+      "Inventory totals reviewed",
+      "Shipping costs reviewed",
+      "Supplies costs reviewed",
+      "Software and subscriptions reviewed",
+      "Bills and loan payments reviewed",
+      "Estimated tax payments recorded",
+      "Profit checked before filing",
+      "Tax return documents ready for Schedule C",
+      "Self-employment tax planned for",
+      "Prior-year tax issues reviewed"
+    ];
+
+    let incomeData = JSON.parse(localStorage.getItem(STORAGE_KEYS.income)) || [];
+    let expensesData = JSON.parse(localStorage.getItem(STORAGE_KEYS.expenses)) || [];
+    let billsData = JSON.parse(localStorage.getItem(STORAGE_KEYS.bills)) || [];
+    let taxChecklistData = JSON.parse(localStorage.getItem(STORAGE_KEYS.checklist)) || {};
+
+    const $ = (id) => document.getElementById(id);
+
+    function fmtMoney(value){
+      return Number(value || 0).toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD"
+      });
+    }
+
+    function todayStr(){
+      return new Date().toISOString().split("T")[0];
+    }
+
+    function saveAll(){
+      localStorage.setItem(STORAGE_KEYS.income, JSON.stringify(incomeData));
+      localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(expensesData));
+      localStorage.setItem(STORAGE_KEYS.bills, JSON.stringify(billsData));
+      localStorage.setItem(STORAGE_KEYS.checklist, JSON.stringify(taxChecklistData));
+    }
+
+    function showSection(id){
+      document.querySelectorAll(".section").forEach(sec => sec.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+    }
+
+    function setTodayDefaults(){
+      $("incomeDate").value = todayStr();
+      $("expDate").value = todayStr();
+      $("billDueDate").value = todayStr();
+    }
+
+    function resetForms(){
+      $("incomeDate").value = todayStr();
+      $("incomeAmount").value = "";
+      $("incomeSource").value = "";
+      $("incomeCategory").value = "Product Sales";
+      $("incomeNotes").value = "";
+
+      $("expDate").value = todayStr();
+      $("expAmount").value = "";
+      $("expVendor").value = "";
+      $("expCategory").value = "Inventory";
+      $("expBusiness").value = "Mr. & Mrs. Cornstarch Hardies";
+      $("expNotes").value = "";
+      $("receiptFile").value = "";
+
+      $("billName").value = "";
+      $("billAmount").value = "";
+      $("billDueDate").value = todayStr();
+      $("billStatus").value = "Unpaid";
+      $("billNotes").value = "";
+    }
+
+    function escapeHtml(str){
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function escapeJs(str){
+      return String(str).replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+    }
+
+    function saveIncome(){
+      const date = $("incomeDate").value;
+      const amount = parseFloat($("incomeAmount").value || "0");
+      const source = $("incomeSource").value.trim();
+      const category = $("incomeCategory").value;
+      const notes = $("incomeNotes").value.trim();
+
+      if(!date || !source || amount <= 0){
+        alert("Please fill in date, source, and a valid amount.");
+        return;
+      }
+
+      incomeData.push({
+        id: Date.now().toString(),
+        date,
+        amount,
+        source,
+        category,
+        notes
+      });
+
+      saveAll();
+      resetForms();
+      renderAll();
+      alert("Income saved.");
+    }
+
+    function saveExpense(){
+      const date = $("expDate").value;
+      const amount = parseFloat($("expAmount").value || "0");
+      const vendor = $("expVendor").value.trim();
+      const category = $("expCategory").value;
+      const business = $("expBusiness").value;
+      const notes = $("expNotes").value.trim();
+      const file = $("receiptFile").files[0];
+
+      if(!date || !vendor || amount <= 0){
+        alert("Please fill in date, vendor, and a valid amount.");
+        return;
+      }
+
+      if(file){
+        const reader = new FileReader();
+        reader.onload = function(e){
+          expensesData.push({
+            id: Date.now().toString(),
+            date,
+            amount,
+            vendor,
+            category,
+            business,
+            notes,
+            receiptURL: e.target.result,
+            receiptName: file.name
+          });
+          saveAll();
+          resetForms();
+          renderAll();
+          alert("Expense saved.");
+        };
+        reader.readAsDataURL(file);
+      } else {
+        expensesData.push({
+          id: Date.now().toString(),
+          date,
+          amount,
+          vendor,
+          category,
+          business,
+          notes,
+          receiptURL: "",
+          receiptName: ""
+        });
+        saveAll();
+        resetForms();
+        renderAll();
+        alert("Expense saved.");
+      }
+    }
+
+    function saveBill(){
+      const name = $("billName").value.trim();
+      const amount = parseFloat($("billAmount").value || "0");
+      const dueDate = $("billDueDate").value;
+      const status = $("billStatus").value;
+      const notes = $("billNotes").value.trim();
+
+      if(!name || !dueDate || amount <= 0){
+        alert("Please fill in bill name, due date, and valid amount.");
+        return;
+      }
+
+      billsData.push({
+        id: Date.now().toString(),
+        name,
+        amount,
+        dueDate,
+        status,
+        notes
+      });
+
+      saveAll();
+      resetForms();
+      renderAll();
+      alert("Bill saved.");
+    }
+
+    function deleteIncome(id){
+      if(!confirm("Delete this income record?")) return;
+      incomeData = incomeData.filter(i => i.id !== id);
+      saveAll();
+      renderAll();
+    }
+
+    function deleteExpense(id){
+      if(!confirm("Delete this expense record?")) return;
+      expensesData = expensesData.filter(e => e.id !== id);
+      saveAll();
+      renderAll();
+    }
+
+    function deleteBill(id){
+      if(!confirm("Delete this bill?")) return;
+      billsData = billsData.filter(b => b.id !== id);
+      saveAll();
+      renderAll();
+    }
+
+    function markBillPaid(id){
+      const bill = billsData.find(b => b.id === id);
+      if(!bill) return;
+      bill.status = "Paid";
+      saveAll();
+      renderAll();
+    }
+
+    function renderIncomeTable(){
+      const q = $("incomeSearch").value.trim().toLowerCase();
+      const rows = [...incomeData]
+        .sort((a,b) => (b.date || "").localeCompare(a.date || ""))
+        .filter(i => {
+          const text = `${i.date} ${i.source} ${i.category} ${i.notes} ${i.amount}`.toLowerCase();
+          return text.includes(q);
+        })
+        .map(i => `
+          <tr>
+            <td>${i.date || ""}</td>
+            <td>${escapeHtml(i.source || "")}</td>
+            <td><span class="pill">${escapeHtml(i.category || "")}</span></td>
+            <td>${escapeHtml(i.notes || "")}</td>
+            <td class="right">${fmtMoney(i.amount)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="bad small-btn" onclick="deleteIncome('${i.id}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join("");
+
+      $("incomeTableBody").innerHTML = rows || `<tr><td colspan="6" class="muted">No income records yet.</td></tr>`;
+
+      const recent = [...incomeData]
+        .sort((a,b) => (b.date || "").localeCompare(a.date || ""))
+        .slice(0, 6)
+        .map(i => `
+          <tr>
+            <td>${i.date || ""}</td>
+            <td>${escapeHtml(i.source || "")}</td>
+            <td>${escapeHtml(i.category || "")}</td>
+            <td class="right">${fmtMoney(i.amount)}</td>
+          </tr>
+        `).join("");
+
+      $("recentIncomeBody").innerHTML = recent || `<tr><td colspan="4" class="muted">No income yet.</td></tr>`;
+    }
+
+    function renderExpensesTable(){
+      const q = $("expenseSearch").value.trim().toLowerCase();
+      const biz = $("expenseBusinessFilter").value;
+
+      const rows = [...expensesData]
+        .sort((a,b) => (b.date || "").localeCompare(a.date || ""))
+        .filter(e => {
+          const matchesBiz = !biz || e.business === biz;
+          const text = `${e.date} ${e.vendor} ${e.category} ${e.business} ${e.notes} ${e.amount}`.toLowerCase();
+          return matchesBiz && text.includes(q);
+        })
+        .map(e => `
+          <tr>
+            <td>${e.date || ""}</td>
+            <td>${escapeHtml(e.vendor || "")}</td>
+            <td><span class="pill">${escapeHtml(e.category || "")}</span></td>
+            <td>${escapeHtml(e.business || "")}</td>
+            <td>
+              ${e.receiptURL ? `<a class="receipt-link" href="${e.receiptURL}" target="_blank">View</a>` : `<span class="muted">None</span>`}
+            </td>
+            <td>${escapeHtml(e.notes || "")}</td>
+            <td class="right">${fmtMoney(e.amount)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="bad small-btn" onclick="deleteExpense('${e.id}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join("");
+
+      $("expensesTableBody").innerHTML = rows || `<tr><td colspan="8" class="muted">No expense records yet.</td></tr>`;
+    }
+
+    function renderBillsTable(){
+      const rows = [...billsData]
+        .sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || ""))
+        .map(b => `
+          <tr>
+            <td>${escapeHtml(b.name || "")}</td>
+            <td>${b.dueDate || ""}</td>
+            <td>${billStatusBadge(b.status)}</td>
+            <td>${escapeHtml(b.notes || "")}</td>
+            <td class="right">${fmtMoney(b.amount)}</td>
+            <td>
+              <div class="row-actions">
+                ${b.status !== "Paid" ? `<button class="good small-btn" onclick="markBillPaid('${b.id}')">Mark Paid</button>` : ""}
+                <button class="bad small-btn" onclick="deleteBill('${b.id}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join("");
+
+      $("billsTableBody").innerHTML = rows || `<tr><td colspan="6" class="muted">No bills yet.</td></tr>`;
+
+      const upcoming = [...billsData]
+        .filter(b => b.status !== "Paid")
+        .sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || ""))
+        .slice(0, 6)
+        .map(b => `
+          <tr>
+            <td>${escapeHtml(b.name || "")}</td>
+            <td>${b.dueDate || ""}</td>
+            <td>${billStatusBadge(b.status)}</td>
+            <td class="right">${fmtMoney(b.amount)}</td>
+          </tr>
+        `).join("");
+
+      $("upcomingBillsBody").innerHTML = upcoming || `<tr><td colspan="4" class="muted">No unpaid bills.</td></tr>`;
+    }
+
+    function renderReceipts(){
+      const q = $("receiptSearch").value.trim().toLowerCase();
+
+      const rows = [...expensesData]
+        .filter(e => e.receiptURL)
+        .filter(e => {
+          const text = `${e.vendor} ${e.category} ${e.business} ${e.date}`.toLowerCase();
+          return text.includes(q);
+        })
+        .sort((a,b) => (b.date || "").localeCompare(a.date || ""))
+        .map(e => `
+          <tr>
+            <td>${e.date || ""}</td>
+            <td>${escapeHtml(e.vendor || "")}</td>
+            <td>${escapeHtml(e.category || "")}</td>
+            <td>${escapeHtml(e.business || "")}</td>
+            <td><a class="receipt-link" href="${e.receiptURL}" target="_blank">${escapeHtml(e.receiptName || "View Receipt")}</a></td>
+            <td class="right">${fmtMoney(e.amount)}</td>
+          </tr>
+        `).join("");
+
+      $("receiptsTableBody").innerHTML = rows || `<tr><td colspan="6" class="muted">No receipts uploaded yet.</td></tr>`;
+    }
+
+    function updateDashboard(){
+      const currentYear = String(new Date().getFullYear());
+
+      const incomeYTD = incomeData
+        .filter(i => (i.date || "").startsWith(currentYear))
+        .reduce((sum, i) => sum + Number(i.amount || 0), 0);
+
+      const expensesYTD = expensesData
+        .filter(e => (e.date || "").startsWith(currentYear))
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+      const unpaidBills = billsData
+        .filter(b => b.status !== "Paid")
+        .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+
+      const profit = incomeYTD - expensesYTD;
+
+      $("kpiIncome").textContent = fmtMoney(incomeYTD);
+      $("kpiExpenses").textContent = fmtMoney(expensesYTD);
+      $("kpiProfit").textContent = fmtMoney(profit);
+      $("kpiBills").textContent = fmtMoney(unpaidBills);
+
+      $("taxIncome").textContent = fmtMoney(incomeYTD);
+      $("taxExpenses").textContent = fmtMoney(expensesYTD);
+      $("taxProfit").textContent = fmtMoney(profit);
+
+      updateTaxSummary();
+      updateCategoryBreakdown();
+    }
+
+    function updateTaxSummary(){
+      const currentYear = String(new Date().getFullYear());
+
+      const incomeYTD = incomeData
+        .filter(i => (i.date || "").startsWith(currentYear))
+        .reduce((sum, i) => sum + Number(i.amount || 0), 0);
+
+      const expensesYTD = expensesData
+        .filter(e => (e.date || "").startsWith(currentYear))
+        .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+      const profit = Math.max(0, incomeYTD - expensesYTD);
+      const rate = Number($("taxRate").value || 0) / 100;
+      const estTax = profit * rate;
+
+      $("estimatedTaxDue").value = fmtMoney(estTax);
+    }
+
+    function updateCategoryBreakdown(){
+      if(!expensesData.length){
+        $("categoryBreakdown").innerHTML = "No expense data yet.";
+        return;
+      }
+
+      const currentYear = String(new Date().getFullYear());
+      const totals = {};
+
+      expensesData
+        .filter(e => (e.date || "").startsWith(currentYear))
+        .forEach(e => {
+          totals[e.category] = (totals[e.category] || 0) + Number(e.amount || 0);
+        });
+
+      const html = Object.entries(totals)
+        .sort((a,b) => b[1] - a[1])
+        .map(([cat, amt]) => `<div style="margin-bottom:8px;"><strong>${escapeHtml(cat)}</strong>: ${fmtMoney(amt)}</div>`)
+        .join("");
+
+      $("categoryBreakdown").innerHTML = html || "No expense data yet.";
+    }
+
+    function billStatusBadge(status){
+      if(status === "Paid") return `<span class="pill good">Paid</span>`;
+      if(status === "Partial") return `<span class="pill warn">Partial</span>`;
+      return `<span class="pill bad">Unpaid</span>`;
+    }
+
+    function renderTaxChecklist(){
+      const year = String(new Date().getFullYear());
+      const saved = taxChecklistData[year] || {};
+
+      $("taxChecklistBox").innerHTML = TAX_CHECKLIST_ITEMS.map((item, idx) => {
+        const checked = !!saved[item];
+        return `
+          <label class="check-item">
+            <input type="checkbox" ${checked ? "checked" : ""} onchange="toggleChecklistItem(${idx}, this.checked)">
+            <span>${escapeHtml(item)}</span>
+          </label>
+        `;
+      }).join("");
+    }
+
+    function toggleChecklistItem(index, checked){
+      const year = String(new Date().getFullYear());
+      if(!taxChecklistData[year]) taxChecklistData[year] = {};
+      taxChecklistData[year][TAX_CHECKLIST_ITEMS[index]] = checked;
+      saveAll();
+    }
+
+    function exportBackup(){
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        income: incomeData,
+        expenses: expensesData,
+        bills: billsData,
+        checklist: taxChecklistData
+      };
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lessie-bea-bookkeeping-backup-${todayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importBackup(event){
+      const file = event.target.files[0];
+      if(!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e){
+        try{
+          const data = JSON.parse(e.target.result);
+          incomeData = Array.isArray(data.income) ? data.income : [];
+          expensesData = Array.isArray(data.expenses) ? data.expenses : [];
+          billsData = Array.isArray(data.bills) ? data.bills : [];
+          taxChecklistData = typeof data.checklist === "object" && data.checklist ? data.checklist : {};
+          saveAll();
+          renderAll();
+          alert("Backup imported.");
+        }catch(err){
+          alert("Could not import backup file.");
+        } finally {
+          $("importFile").value = "";
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function clearAllData(){
+      const ok = confirm("Delete all bookkeeping data from this browser?");
+      if(!ok) return;
+      const ok2 = confirm("This cannot be undone unless you exported a backup. Clear everything?");
+      if(!ok2) return;
+
+      incomeData = [];
+      expensesData = [];
+      billsData = [];
+      taxChecklistData = {};
+      saveAll();
+      renderAll();
+      alert("All data cleared.");
+    }
+
+    function renderAll(){
+      renderIncomeTable();
+      renderExpensesTable();
+      renderBillsTable();
+      renderReceipts();
+      renderTaxChecklist();
+      updateDashboard();
+    }
+
+    setTodayDefaults();
+    renderAll();
+  </script>
+</body>
+</html>
