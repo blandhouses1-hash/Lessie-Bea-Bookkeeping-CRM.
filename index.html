@@ -1153,21 +1153,38 @@ const STORAGE_KEY =
 
 
 /*
-  VERSIONED CLEANUP
+  ============================================================
+  IMPORTANT OVERDUE BILL MIGRATION
+  ============================================================
 
-  Your old code used a simple "yes" flag.
-  That flag had already been set, which prevented
-  the old bills from being cleaned up.
+  VERSION 3 IS INTENTIONAL.
 
-  This version uses a new version number.
-  Therefore the cleanup below WILL run once
-  on the existing database.
+  Your browser may already have version 2 saved from the
+  previous code. Therefore version 2 would NOT run again.
 
-  After version 2 is complete, it will never
-  automatically delete future overdue bills.
+  Version 3 forces this correction to run ONE TIME on the
+  existing bookkeeping data.
+
+  TODAY = the actual date on the laptop/browser.
+
+  What this migration does:
+
+  1. Finds unpaid bills whose due date is before today.
+  2. Deletes those old overdue unpaid records.
+  3. DOES NOT delete paid bills.
+  4. DOES NOT delete current or future bills.
+  5. For an old recurring bill:
+       - if a current/future occurrence already exists,
+         it keeps that occurrence.
+       - if no current/future occurrence exists,
+         it creates ONE next future occurrence.
+  6. It does NOT create all the missed months.
+  7. It runs only once for VERSION 3.
+
+  After this migration, normal recurring billing continues.
 */
 
-const OVERDUE_CLEANUP_VERSION = '2';
+const OVERDUE_CLEANUP_VERSION = '3';
 
 const OVERDUE_CLEANUP_KEY =
   'lessieBeaBookkeepingOverdueCleanupVersion';
@@ -1298,11 +1315,25 @@ function loadData(){
           lastRunDate:''
         };
 
+
       /*
-        Normalize older bills.
+        Normalize every bill so older records work
+        with the current recurring system.
       */
 
       appData.bills.forEach(b=>{
+
+        if(!b.id)
+          b.id = uid();
+
+        if(typeof b.billName !== 'string')
+          b.billName = '';
+
+        if(typeof b.amount !== 'number')
+          b.amount = Number(b.amount || 0);
+
+        if(typeof b.status !== 'string')
+          b.status = 'Unpaid';
 
         if(typeof b.recurring !== 'boolean')
           b.recurring = false;
@@ -1313,11 +1344,22 @@ function loadData(){
         if(!b.recurringEndDate)
           b.recurringEndDate = '';
 
-        if(typeof b.generatedFromRecurring !== 'boolean')
+        if(
+          typeof b.generatedFromRecurring !==
+          'boolean'
+        )
           b.generatedFromRecurring = false;
+
+        /*
+          Every recurring occurrence in the same
+          series must have the same family ID.
+        */
 
         if(!b.parentRecurringId && b.recurring)
           b.parentRecurringId = b.id;
+
+        if(!b.parentRecurringId)
+          b.parentRecurringId = '';
 
         if(typeof b.lastGeneratedDate !== 'string')
           b.lastGeneratedDate = '';
@@ -1326,7 +1368,10 @@ function loadData(){
 
     }catch(e){
 
-      console.log('Load error',e);
+      console.log(
+        'Load error',
+        e
+      );
 
     }
 
@@ -1335,9 +1380,14 @@ function loadData(){
 }
 
 
-/* DATE HELPERS */
+/* ============================================================
+   DATE HELPERS
+   ============================================================ */
 
-function addMonths(dateStr,months){
+function addMonths(
+  dateStr,
+  months
+){
 
   const d =
     new Date(
@@ -1367,7 +1417,10 @@ function addMonths(dateStr,months){
 }
 
 
-function addWeeks(dateStr,weeks){
+function addWeeks(
+  dateStr,
+  weeks
+){
 
   const d =
     new Date(
@@ -1386,7 +1439,10 @@ function addWeeks(dateStr,weeks){
 }
 
 
-function addYears(dateStr,years){
+function addYears(
+  dateStr,
+  years
+){
 
   const d =
     new Date(
@@ -1409,14 +1465,26 @@ function getNextDueDate(
   frequency
 ){
 
+  if(!dateStr)
+    return '';
+
   if(frequency === 'Monthly')
-    return addMonths(dateStr,1);
+    return addMonths(
+      dateStr,
+      1
+    );
 
   if(frequency === 'Weekly')
-    return addWeeks(dateStr,1);
+    return addWeeks(
+      dateStr,
+      1
+    );
 
   if(frequency === 'Yearly')
-    return addYears(dateStr,1);
+    return addYears(
+      dateStr,
+      1
+    );
 
   return dateStr;
 
@@ -1424,10 +1492,7 @@ function getNextDueDate(
 
 
 /*
-  Find the first scheduled occurrence
-  AFTER today.
-
-  This is used only for the one-time cleanup.
+  Find the first scheduled date strictly AFTER today.
 */
 
 function getNextFutureDate(
@@ -1444,6 +1509,7 @@ function getNextFutureDate(
   let safety = 0;
 
   while(
+    nextDate &&
     nextDate <= today &&
     safety < 500
   ){
@@ -1454,10 +1520,17 @@ function getNextFutureDate(
         frequency
       );
 
-    if(calculated === nextDate)
+    if(
+      !calculated ||
+      calculated === nextDate
+    ){
+
       break;
 
-    nextDate = calculated;
+    }
+
+    nextDate =
+      calculated;
 
     safety++;
 
@@ -1468,27 +1541,9 @@ function getNextFutureDate(
 }
 
 
-/*
-  ONE-TIME OLD OVERDUE CLEANUP
-
-  The user's existing overdue bills are being treated
-  as already paid.
-
-  Non-recurring overdue unpaid bills:
-    DELETE
-
-  Recurring overdue unpaid bills:
-    DELETE old occurrence
-
-    If a current/future occurrence already exists:
-      KEEP it
-
-    If no current/future occurrence exists:
-      create ONE next future occurrence
-
-  This preserves recurring bills without bringing
-  old debt back into the tracker.
-*/
+/* ============================================================
+   ONE-TIME VERSION 3 OVERDUE CLEANUP
+   ============================================================ */
 
 function cleanupOldOverdueBills(){
 
@@ -1497,12 +1552,20 @@ function cleanupOldOverdueBills(){
       OVERDUE_CLEANUP_KEY
     );
 
+
+  /*
+    If version 3 already ran, STOP.
+
+    This is what prevents future overdue bills from
+    being automatically deleted.
+  */
+
   if(
     completedVersion ===
     OVERDUE_CLEANUP_VERSION
   ){
 
-    return;
+    return false;
 
   }
 
@@ -1512,19 +1575,33 @@ function cleanupOldOverdueBills(){
 
 
   /*
-    Find old unpaid overdue bills.
+    Capture ALL unpaid overdue bills BEFORE changing
+    the array.
   */
 
   const oldOverdue =
-    appData.bills.filter(b=>
-      b.status !== 'Paid' &&
-      b.dueDate &&
-      b.dueDate < today
-    );
+    appData.bills.filter(b=>{
+
+      const unpaid =
+        b.status !== 'Paid';
+
+      const hasDate =
+        !!b.dueDate;
+
+      const old =
+        b.dueDate &&
+        b.dueDate < today;
+
+      return unpaid &&
+        hasDate &&
+        old;
+
+    });
 
 
   /*
-    Remember recurring families BEFORE deleting.
+    Keep the recurring families that need their
+    old records removed and possibly replaced.
   */
 
   const recurringFamilies = {};
@@ -1538,8 +1615,13 @@ function cleanupOldOverdueBills(){
         b.parentRecurringId ||
         b.id;
 
-      if(!recurringFamilies[familyId])
+      if(
+        !recurringFamilies[familyId]
+      ){
+
         recurringFamilies[familyId] = [];
+
+      }
 
       recurringFamilies[familyId].push(b);
 
@@ -1547,23 +1629,37 @@ function cleanupOldOverdueBills(){
 
 
   /*
-    Delete ALL old unpaid overdue records.
+    DELETE ONLY THE OLD UNPAID OVERDUE RECORDS.
 
-    Paid bills are NOT touched.
-    Current/future bills are NOT touched.
+    Paid bills remain.
+    Current bills remain.
+    Future bills remain.
   */
 
   appData.bills =
     appData.bills.filter(b=>{
 
-      if(b.status === 'Paid')
+      if(
+        b.status === 'Paid'
+      ){
+
         return true;
 
-      if(!b.dueDate)
+      }
+
+      if(!b.dueDate){
+
         return true;
 
-      if(b.dueDate < today)
+      }
+
+      if(
+        b.dueDate < today
+      ){
+
         return false;
+
+      }
 
       return true;
 
@@ -1574,125 +1670,168 @@ function cleanupOldOverdueBills(){
 
 
   /*
-    Restore the recurring schedule correctly.
-
-    If a future/current bill already exists,
-    don't create another.
-
-    If none exists, create the NEXT occurrence
-    after today from the most recent old record.
+    Restore one future occurrence for each recurring
+    family that no longer has a current/future occurrence.
   */
 
   Object.keys(
     recurringFamilies
-  ).forEach(familyId=>{
+  ).forEach(
+    familyId=>{
 
-    const family =
-      recurringFamilies[familyId];
-
-    const hasCurrentOrFuture =
-      appData.bills.some(b=>
-        (b.parentRecurringId || b.id)
-        === familyId &&
-        b.dueDate &&
-        b.dueDate >= today
-    );
+      const oldFamily =
+        recurringFamilies[
+          familyId
+        ];
 
 
-    if(hasCurrentOrFuture)
-      return;
+      /*
+        Check the remaining database.
+
+        A current/future bill can be either Paid
+        or Unpaid. Either way, it means the series
+        already has an occurrence, so don't create
+        another one here.
+      */
+
+      const hasCurrentOrFuture =
+        appData.bills.some(b=>{
+
+          const sameFamily =
+            (
+              b.parentRecurringId ||
+              b.id
+            ) === familyId;
+
+          const currentOrFuture =
+            b.dueDate &&
+            b.dueDate >= today;
+
+          return sameFamily &&
+            currentOrFuture;
+
+        });
 
 
-    const template =
-      [...family].sort(
-        (a,b)=>
-          b.dueDate.localeCompare(
-            a.dueDate
-          )
-      )[0];
+      if(
+        hasCurrentOrFuture
+      ){
+
+        return;
+
+      }
 
 
-    if(!template)
-      return;
+      /*
+        Use the most recent old occurrence as the
+        template for the next future occurrence.
+      */
+
+      const template =
+        [...oldFamily].sort(
+          (a,b)=>
+            String(
+              b.dueDate || ''
+            ).localeCompare(
+              String(
+                a.dueDate || ''
+              )
+            )
+        )[0];
 
 
-    const frequency =
-      template.frequency ||
-      'Monthly';
+      if(!template)
+        return;
 
 
-    const nextDate =
-      getNextFutureDate(
-        template.dueDate,
-        frequency
+      const frequency =
+        template.frequency ||
+        'Monthly';
+
+
+      const nextDate =
+        getNextFutureDate(
+          template.dueDate,
+          frequency
+        );
+
+
+      if(!nextDate)
+        return;
+
+
+      /*
+        Respect the recurring end date.
+      */
+
+      if(
+        template.recurringEndDate &&
+        nextDate >
+        template.recurringEndDate
+      ){
+
+        return;
+
+      }
+
+
+      /*
+        Extra duplicate protection.
+      */
+
+      const exists =
+        appData.bills.some(b=>{
+
+          return (
+            (
+              b.parentRecurringId ||
+              b.id
+            ) === familyId
+          ) &&
+          b.dueDate === nextDate;
+
+        });
+
+
+      if(exists)
+        return;
+
+
+      const newBill = {
+
+        ...template,
+
+        id:uid(),
+
+        dueDate:nextDate,
+
+        status:'Unpaid',
+
+        generatedFromRecurring:true,
+
+        lastGeneratedDate:today,
+
+        parentRecurringId:familyId
+
+      };
+
+
+      appData.bills.push(
+        newBill
       );
 
-
-    /*
-      If the recurring end date has passed,
-      don't create another occurrence.
-    */
-
-    if(
-      template.recurringEndDate &&
-      nextDate >
-      template.recurringEndDate
-    ){
-
-      return;
+      createdRecurring++;
 
     }
-
-
-    /*
-      Make sure there isn't already a bill
-      with this family/date.
-    */
-
-    const exists =
-      appData.bills.some(b=>
-        (b.parentRecurringId || b.id)
-        === familyId &&
-        b.dueDate === nextDate
-      );
-
-
-    if(exists)
-      return;
-
-
-    const newBill = {
-
-      ...template,
-
-      id:uid(),
-
-      dueDate:nextDate,
-
-      status:'Unpaid',
-
-      generatedFromRecurring:true,
-
-      lastGeneratedDate:today,
-
-      parentRecurringId:familyId
-
-    };
-
-
-    appData.bills.push(
-      newBill
-    );
-
-    createdRecurring++;
-
-  });
+  );
 
 
   /*
-    Mark this cleanup version complete.
+    IMPORTANT:
+    Set version 3 AFTER the cleanup has been completed.
 
-    It will NOT run again automatically.
+    This means the migration will not run again on
+    every page refresh.
   */
 
   localStorage.setItem(
@@ -1705,11 +1844,12 @@ function cleanupOldOverdueBills(){
 
 
   /*
-    Show a small confirmation on the page
-    instead of repeatedly deleting anything.
+    Show confirmation.
   */
 
-  if(oldOverdue.length){
+  if(
+    oldOverdue.length > 0
+  ){
 
     const notice =
       document.getElementById(
@@ -1722,20 +1862,26 @@ function cleanupOldOverdueBills(){
         'block';
 
       notice.innerHTML =
-        `✅ Old past-due bills were removed. ` +
-        `${oldOverdue.length} old overdue bill(s) cleared` +
+        `✅ ${oldOverdue.length} old past-due unpaid bill(s) were cleared. ` +
         (
-          createdRecurring
-            ? ` and ${createdRecurring} next recurring bill(s) were scheduled.`
-            : '.'
+          createdRecurring > 0
+            ? `${createdRecurring} next recurring bill(s) were scheduled.`
+            : 'No additional recurring bills needed to be created.'
         );
 
     }
 
   }
 
+
+  return true;
+
 }
 
+
+/* ============================================================
+   STORAGE
+   ============================================================ */
 
 function saveData(){
 
@@ -1747,32 +1893,49 @@ function saveData(){
 }
 
 
+/* ============================================================
+   GENERAL HELPERS
+   ============================================================ */
+
 function formatMoney(n){
 
-  return `$${(Number(n)||0).toFixed(2)}`;
+  return `$${(
+    Number(n) || 0
+  ).toFixed(2)}`;
 
 }
 
 
-function showSection(id,btn){
+function showSection(
+  id,
+  btn
+){
 
   document
     .querySelectorAll('.section')
     .forEach(s=>
-      s.classList.remove('active')
+      s.classList.remove(
+        'active'
+      )
     );
 
   document
     .querySelectorAll('.tab-btn')
     .forEach(b=>
-      b.classList.remove('active')
+      b.classList.remove(
+        'active'
+      )
     );
 
   document
     .getElementById(id)
-    .classList.add('active');
+    .classList.add(
+      'active'
+    );
 
-  btn.classList.add('active');
+  btn.classList.add(
+    'active'
+  );
 
 }
 
@@ -1792,50 +1955,76 @@ function setDefaultDates(){
     const el =
       document.getElementById(id);
 
-    if(el && !el.value)
+    if(
+      el &&
+      !el.value
+    ){
+
       el.value = t;
+
+    }
 
   });
 
 }
 
 
-function clearInputs(ids){
+function clearInputs(
+  ids
+){
 
   ids.forEach(id=>{
 
     const el =
       document.getElementById(id);
 
-    if(!el) return;
+    if(!el)
+      return;
 
-    if(el.tagName === 'SELECT')
+    if(
+      el.tagName === 'SELECT'
+    ){
+
       el.selectedIndex = 0;
-    else
+
+    }else{
+
       el.value = '';
+
+    }
 
   });
 
+
   setDefaultDates();
 
+
   const status =
-    document.getElementById('billStatus');
+    document.getElementById(
+      'billStatus'
+    );
 
   if(status)
     status.value = 'Unpaid';
 
+
   const recurring =
-    document.getElementById('billRecurring');
+    document.getElementById(
+      'billRecurring'
+    );
 
   if(recurring)
     recurring.value = 'No';
+
 
   toggleRecurringFields();
 
 }
 
 
-/* INCOME */
+/* ============================================================
+   INCOME
+   ============================================================ */
 
 function saveIncome(){
 
@@ -1844,31 +2033,47 @@ function saveIncome(){
     id:uid(),
 
     date:
-      document.getElementById('incomeDate').value,
+      document
+        .getElementById(
+          'incomeDate'
+        )
+        .value,
 
     source:
       document
-        .getElementById('incomeSource')
-        .value.trim(),
+        .getElementById(
+          'incomeSource'
+        )
+        .value
+        .trim(),
 
     amount:
       parseFloat(
         document
-          .getElementById('incomeAmount')
+          .getElementById(
+            'incomeAmount'
+          )
           .value || 0
       ),
 
     category:
       document
-        .getElementById('incomeCategory')
-        .value.trim(),
+        .getElementById(
+          'incomeCategory'
+        )
+        .value
+        .trim(),
 
     notes:
       document
-        .getElementById('incomeNotes')
-        .value.trim()
+        .getElementById(
+          'incomeNotes'
+        )
+        .value
+        .trim()
 
   };
+
 
   if(
     !item.date ||
@@ -1884,7 +2089,10 @@ function saveIncome(){
 
   }
 
-  appData.income.unshift(item);
+
+  appData.income.unshift(
+    item
+  );
 
   saveData();
 
@@ -1901,7 +2109,9 @@ function saveIncome(){
 }
 
 
-/* EXPENSES */
+/* ============================================================
+   EXPENSES
+   ============================================================ */
 
 function saveExpense(){
 
@@ -1911,32 +2121,45 @@ function saveExpense(){
 
     date:
       document
-        .getElementById('expenseDate')
+        .getElementById(
+          'expenseDate'
+        )
         .value,
 
     name:
       document
-        .getElementById('expenseName')
-        .value.trim(),
+        .getElementById(
+          'expenseName'
+        )
+        .value
+        .trim(),
 
     amount:
       parseFloat(
         document
-          .getElementById('expenseAmount')
+          .getElementById(
+            'expenseAmount'
+          )
           .value || 0
       ),
 
     category:
       document
-        .getElementById('expenseCategory')
+        .getElementById(
+          'expenseCategory'
+        )
         .value,
 
     notes:
       document
-        .getElementById('expenseNotes')
-        .value.trim()
+        .getElementById(
+          'expenseNotes'
+        )
+        .value
+        .trim()
 
   };
+
 
   if(
     !item.date ||
@@ -1952,7 +2175,10 @@ function saveExpense(){
 
   }
 
-  appData.expenses.unshift(item);
+
+  appData.expenses.unshift(
+    item
+  );
 
   saveData();
 
@@ -1969,7 +2195,9 @@ function saveExpense(){
 }
 
 
-/* RECEIPTS */
+/* ============================================================
+   RECEIPTS
+   ============================================================ */
 
 function saveReceipt(){
 
@@ -1979,32 +2207,46 @@ function saveReceipt(){
 
     date:
       document
-        .getElementById('receiptDate')
+        .getElementById(
+          'receiptDate'
+        )
         .value,
 
     vendor:
       document
-        .getElementById('receiptVendor')
-        .value.trim(),
+        .getElementById(
+          'receiptVendor'
+        )
+        .value
+        .trim(),
 
     amount:
       parseFloat(
         document
-          .getElementById('receiptAmount')
+          .getElementById(
+            'receiptAmount'
+          )
           .value || 0
       ),
 
     category:
       document
-        .getElementById('receiptCategory')
-        .value.trim(),
+        .getElementById(
+          'receiptCategory'
+        )
+        .value
+        .trim(),
 
     notes:
       document
-        .getElementById('receiptNotes')
-        .value.trim()
+        .getElementById(
+          'receiptNotes'
+        )
+        .value
+        .trim()
 
   };
+
 
   if(
     !item.date ||
@@ -2020,7 +2262,10 @@ function saveReceipt(){
 
   }
 
-  appData.receipts.unshift(item);
+
+  appData.receipts.unshift(
+    item
+  );
 
   saveData();
 
@@ -2037,58 +2282,90 @@ function saveReceipt(){
 }
 
 
-/* RECURRING FORM */
+/* ============================================================
+   RECURRING FORM
+   ============================================================ */
 
 function toggleRecurringFields(){
 
   const recurring =
-    document.getElementById(
-      'billRecurring'
-    ).value === 'Yes';
+    document
+      .getElementById(
+        'billRecurring'
+      )
+      .value === 'Yes';
 
-  document.getElementById(
-    'recurringFrequencyWrap'
-  ).style.display =
-    recurring ? 'block' : 'none';
 
-  document.getElementById(
-    'recurringEndWrap'
-  ).style.display =
-    recurring ? 'block' : 'none';
+  document
+    .getElementById(
+      'recurringFrequencyWrap'
+    )
+    .style.display =
+      recurring
+        ? 'block'
+        : 'none';
+
+
+  document
+    .getElementById(
+      'recurringEndWrap'
+    )
+    .style.display =
+      recurring
+        ? 'block'
+        : 'none';
 
 }
 
 
-/* BILLS */
+/* ============================================================
+   BILLS
+   ============================================================ */
 
 function saveBill(){
 
   const editingId =
     document
-      .getElementById('editingBillId')
+      .getElementById(
+        'editingBillId'
+      )
       .value;
+
 
   const recurring =
     document
-      .getElementById('billRecurring')
+      .getElementById(
+        'billRecurring'
+      )
       .value === 'Yes';
+
 
   const name =
     document
-      .getElementById('billName')
-      .value.trim();
+      .getElementById(
+        'billName'
+      )
+      .value
+      .trim();
+
 
   const amount =
     parseFloat(
       document
-        .getElementById('billAmount')
+        .getElementById(
+          'billAmount'
+        )
         .value || 0
     );
 
+
   const dueDate =
     document
-      .getElementById('billDueDate')
+      .getElementById(
+        'billDueDate'
+      )
       .value;
+
 
   if(
     !name ||
@@ -2114,45 +2391,67 @@ function saveBill(){
         b=>b.id === editingId
       );
 
+
     if(!bill)
       return;
 
-    bill.billName = name;
 
-    bill.amount = amount;
+    const oldStatus =
+      bill.status;
 
-    bill.dueDate = dueDate;
+
+    bill.billName =
+      name;
+
+    bill.amount =
+      amount;
+
+    bill.dueDate =
+      dueDate;
 
     bill.status =
       document
-        .getElementById('billStatus')
+        .getElementById(
+          'billStatus'
+        )
         .value;
 
     bill.category =
       document
-        .getElementById('billCategory')
+        .getElementById(
+          'billCategory'
+        )
         .value;
 
     bill.notes =
       document
-        .getElementById('billNotes')
-        .value.trim();
+        .getElementById(
+          'billNotes'
+        )
+        .value
+        .trim();
 
-    bill.recurring = recurring;
+    bill.recurring =
+      recurring;
 
     bill.frequency =
       recurring
         ? document
-            .getElementById('billFrequency')
+            .getElementById(
+              'billFrequency'
+            )
             .value
         : '';
 
     bill.recurringEndDate =
       recurring
         ? document
-            .getElementById('billRecurringEndDate')
+            .getElementById(
+              'billRecurringEndDate'
+            )
             .value
         : '';
+
 
     if(
       recurring &&
@@ -2164,13 +2463,35 @@ function saveBill(){
 
     }
 
+
     if(!recurring){
 
-      bill.parentRecurringId = '';
+      bill.parentRecurringId =
+        '';
 
-      bill.generatedFromRecurring = false;
+      bill.generatedFromRecurring =
+        false;
 
     }
+
+
+    /*
+      If the user changes an unpaid recurring bill
+      to Paid through editing, create its next bill.
+    */
+
+    if(
+      recurring &&
+      oldStatus !== 'Paid' &&
+      bill.status === 'Paid'
+    ){
+
+      generateNextRecurringBill(
+        bill
+      );
+
+    }
+
 
     saveData();
 
@@ -2178,7 +2499,9 @@ function saveBill(){
 
     cancelBillEdit();
 
-    alert('Bill updated.');
+    alert(
+      'Bill updated.'
+    );
 
     return;
 
@@ -2197,54 +2520,91 @@ function saveBill(){
 
     id:uid(),
 
-    billName:name,
+    billName:
+      name,
 
-    amount:amount,
+    amount:
+      amount,
 
-    dueDate:dueDate,
+    dueDate:
+      dueDate,
 
     status:
       document
-        .getElementById('billStatus')
+        .getElementById(
+          'billStatus'
+        )
         .value,
 
     category:
       document
-        .getElementById('billCategory')
+        .getElementById(
+          'billCategory'
+        )
         .value,
 
     notes:
       document
-        .getElementById('billNotes')
-        .value.trim(),
+        .getElementById(
+          'billNotes'
+        )
+        .value
+        .trim(),
 
-    recurring:recurring,
+    recurring:
+      recurring,
 
     frequency:
       recurring
         ? document
-            .getElementById('billFrequency')
+            .getElementById(
+              'billFrequency'
+            )
             .value
         : '',
 
     recurringEndDate:
       recurring
         ? document
-            .getElementById('billRecurringEndDate')
+            .getElementById(
+              'billRecurringEndDate'
+            )
             .value
         : '',
 
     parentRecurringId:
       familyId,
 
-    generatedFromRecurring:false,
+    generatedFromRecurring:
+      false,
 
-    lastGeneratedDate:''
+    lastGeneratedDate:
+      ''
 
   };
 
 
-  appData.bills.unshift(item);
+  appData.bills.unshift(
+    item
+  );
+
+
+  /*
+    If a brand-new recurring bill is entered as
+    Paid, create the next occurrence immediately.
+  */
+
+  if(
+    item.recurring &&
+    item.status === 'Paid'
+  ){
+
+    generateNextRecurringBill(
+      item
+    );
+
+  }
+
 
   saveData();
 
@@ -2262,7 +2622,9 @@ function saveBill(){
 }
 
 
-/* EDIT BILL */
+/* ============================================================
+   EDIT BILL
+   ============================================================ */
 
 function editBill(id){
 
@@ -2271,73 +2633,92 @@ function editBill(id){
       b=>b.id === id
     );
 
+
   if(!bill)
     return;
+
 
   document.getElementById(
     'editingBillId'
   ).value =
     bill.id;
 
+
   document.getElementById(
     'billName'
   ).value =
     bill.billName || '';
+
 
   document.getElementById(
     'billAmount'
   ).value =
     bill.amount || '';
 
+
   document.getElementById(
     'billDueDate'
   ).value =
     bill.dueDate || '';
+
 
   document.getElementById(
     'billStatus'
   ).value =
     bill.status || 'Unpaid';
 
+
   document.getElementById(
     'billCategory'
   ).value =
     bill.category || '';
+
 
   document.getElementById(
     'billNotes'
   ).value =
     bill.notes || '';
 
+
   document.getElementById(
     'billRecurring'
   ).value =
-    bill.recurring ? 'Yes' : 'No';
+    bill.recurring
+      ? 'Yes'
+      : 'No';
+
 
   document.getElementById(
     'billFrequency'
   ).value =
-    bill.frequency || 'Monthly';
+    bill.frequency ||
+    'Monthly';
+
 
   document.getElementById(
     'billRecurringEndDate'
   ).value =
-    bill.recurringEndDate || '';
+    bill.recurringEndDate ||
+    '';
+
 
   document.getElementById(
     'billFormTitle'
   ).textContent =
     'Edit Bill';
 
+
   document.getElementById(
     'saveBillButton'
   ).textContent =
     'Update Bill';
 
+
   document.getElementById(
     'cancelBillButton'
   ).style.display =
     'inline-block';
+
 
   document.getElementById(
     'billFormCard'
@@ -2345,7 +2726,9 @@ function editBill(id){
     'bill-editing'
   );
 
+
   toggleRecurringFields();
+
 
   document.getElementById(
     'billFormCard'
@@ -2357,34 +2740,42 @@ function editBill(id){
 }
 
 
-/* CANCEL EDIT */
+/* ============================================================
+   CANCEL BILL EDIT
+   ============================================================ */
 
 function cancelBillEdit(){
 
   document.getElementById(
     'editingBillId'
-  ).value = '';
+  ).value =
+    '';
+
 
   document.getElementById(
     'billFormTitle'
   ).textContent =
     'Add Bill';
 
+
   document.getElementById(
     'saveBillButton'
   ).textContent =
     'Save Bill';
+
 
   document.getElementById(
     'cancelBillButton'
   ).style.display =
     'none';
 
+
   document.getElementById(
     'billFormCard'
   ).classList.remove(
     'bill-editing'
   );
+
 
   clearInputs([
     'billName',
@@ -2398,21 +2789,31 @@ function cancelBillEdit(){
 }
 
 
-/* DELETE */
+/* ============================================================
+   DELETE
+   ============================================================ */
 
-function deleteItem(type,id){
+function deleteItem(
+  type,
+  id
+){
 
   if(
     !confirm(
       'Delete this item?'
     )
-  )
+  ){
+
     return;
+
+  }
+
 
   appData[type] =
     appData[type].filter(
       x=>x.id !== id
     );
+
 
   saveData();
 
@@ -2421,7 +2822,9 @@ function deleteItem(type,id){
 }
 
 
-/* MARK PAID */
+/* ============================================================
+   MARK BILL PAID
+   ============================================================ */
 
 function markBillPaid(id){
 
@@ -2430,20 +2833,29 @@ function markBillPaid(id){
       b=>b.id === id
     );
 
+
   if(!bill)
     return;
 
-  bill.status = 'Paid';
+
+  bill.status =
+    'Paid';
 
 
   /*
-    Immediately create ONLY the next
-    recurring occurrence.
+    Immediately create ONLY the next recurring
+    occurrence.
+
+    It will NOT create missed months.
   */
 
-  if(bill.recurring){
+  if(
+    bill.recurring
+  ){
 
-    generateNextRecurringBill(bill);
+    generateNextRecurringBill(
+      bill
+    );
 
   }
 
@@ -2455,7 +2867,9 @@ function markBillPaid(id){
 }
 
 
-/* MARK UNPAID */
+/* ============================================================
+   MARK BILL UNPAID
+   ============================================================ */
 
 function markBillUnpaid(id){
 
@@ -2464,10 +2878,14 @@ function markBillUnpaid(id){
       b=>b.id === id
     );
 
+
   if(!bill)
     return;
 
-  bill.status = 'Unpaid';
+
+  bill.status =
+    'Unpaid';
+
 
   saveData();
 
@@ -2476,19 +2894,29 @@ function markBillUnpaid(id){
 }
 
 
-/*
-  CREATE ONLY ONE NEXT RECURRING BILL.
+/* ============================================================
+   CREATE ONE NEXT RECURRING BILL
+   ============================================================ */
 
-  It does not create missed months.
-*/
+function generateNextRecurringBill(
+  bill
+){
 
-function generateNextRecurringBill(bill){
+  if(!bill)
+    return false;
+
 
   if(!bill.recurring)
     return false;
 
-  if(bill.status !== 'Paid')
+
+  if(
+    bill.status !== 'Paid'
+  ){
+
     return false;
+
+  }
 
 
   const familyId =
@@ -2496,19 +2924,39 @@ function generateNextRecurringBill(bill){
     bill.id;
 
 
+  /*
+    Get the entire recurring family.
+  */
+
   const family =
     appData.bills.filter(b=>
-      (b.parentRecurringId || b.id)
-      === familyId &&
-      b.recurring
+
+      b.recurring &&
+      (
+        b.parentRecurringId ||
+        b.id
+      ) === familyId
+
     );
 
+
+  if(!family.length)
+    return false;
+
+
+  /*
+    Sort newest due date first.
+  */
 
   const sorted =
     [...family].sort(
       (a,b)=>
-        b.dueDate.localeCompare(
-          a.dueDate
+        String(
+          b.dueDate || ''
+        ).localeCompare(
+          String(
+            a.dueDate || ''
+          )
         )
     );
 
@@ -2522,30 +2970,16 @@ function generateNextRecurringBill(bill){
 
 
   /*
-    Only the latest bill can generate
-    the next one.
+    Only the latest occurrence is allowed to
+    create another occurrence.
+
+    This prevents an older paid occurrence from
+    generating a duplicate after a newer occurrence
+    already exists.
   */
 
-  if(latest.id !== bill.id)
-    return false;
-
-
-  const frequency =
-    bill.frequency ||
-    'Monthly';
-
-
-  const nextDate =
-    getNextDueDate(
-      bill.dueDate,
-      frequency
-    );
-
-
   if(
-    bill.recurringEndDate &&
-    nextDate >
-    bill.recurringEndDate
+    latest.id !== bill.id
   ){
 
     return false;
@@ -2553,11 +2987,51 @@ function generateNextRecurringBill(bill){
   }
 
 
+  const frequency =
+    latest.frequency ||
+    'Monthly';
+
+
+  const nextDate =
+    getNextDueDate(
+      latest.dueDate,
+      frequency
+    );
+
+
+  if(!nextDate)
+    return false;
+
+
+  /*
+    Respect recurring end date.
+  */
+
+  if(
+    latest.recurringEndDate &&
+    nextDate >
+    latest.recurringEndDate
+  ){
+
+    return false;
+
+  }
+
+
+  /*
+    Never create a duplicate occurrence.
+  */
+
   const exists =
     appData.bills.some(b=>
-      (b.parentRecurringId || b.id)
-      === familyId &&
+
+      (
+        b.parentRecurringId ||
+        b.id
+      ) === familyId &&
+
       b.dueDate === nextDate
+
     );
 
 
@@ -2567,7 +3041,7 @@ function generateNextRecurringBill(bill){
 
   const newBill = {
 
-    ...bill,
+    ...latest,
 
     id:uid(),
 
@@ -2594,14 +3068,9 @@ function generateNextRecurringBill(bill){
 }
 
 
-/*
-  MANUAL RECURRING CHECK
-
-  Only creates the next occurrence
-  when the latest recurring bill is Paid.
-
-  It NEVER creates all missed months.
-*/
+/* ============================================================
+   MANUAL RECURRING CHECK
+   ============================================================ */
 
 function generateRecurringBills(
   manualRun=false
@@ -2610,58 +3079,72 @@ function generateRecurringBills(
   let created = 0;
 
 
-  /*
-    Every recurring series is identified
-    by its family ID.
-  */
-
   const familyIds = [];
 
 
   appData.bills
-    .filter(b=>b.recurring)
-    .forEach(b=>{
+    .filter(
+      b=>b.recurring
+    )
+    .forEach(
+      b=>{
 
-      const familyId =
-        b.parentRecurringId ||
-        b.id;
+        const familyId =
+          b.parentRecurringId ||
+          b.id;
 
-      if(
-        !familyIds.includes(
-          familyId
-        )
-      ){
 
-        familyIds.push(
-          familyId
-        );
+        if(
+          !familyIds.includes(
+            familyId
+          )
+        ){
+
+          familyIds.push(
+            familyId
+          );
+
+        }
 
       }
-
-    });
+    );
 
 
   familyIds.forEach(
     familyId=>{
 
       const family =
-        appData.bills
-          .filter(b=>
+        appData.bills.filter(
+          b=>
+
             b.recurring &&
-            (b.parentRecurringId || b.id)
-            === familyId
-          );
+
+            (
+              b.parentRecurringId ||
+              b.id
+            ) === familyId
+
+        );
 
 
-      if(!family.length)
+      if(
+        !family.length
+      ){
+
         return;
+
+      }
 
 
       const sorted =
         [...family].sort(
           (a,b)=>
-            b.dueDate.localeCompare(
-              a.dueDate
+            String(
+              b.dueDate || ''
+            ).localeCompare(
+              String(
+                a.dueDate || ''
+              )
             )
         );
 
@@ -2671,10 +3154,13 @@ function generateRecurringBills(
 
 
       /*
-        If latest is unpaid,
+        If the latest occurrence is unpaid,
         STOP.
 
-        No new bill is created.
+        This is important.
+
+        The system does NOT create another bill
+        while the current recurring bill is unpaid.
       */
 
       if(
@@ -2722,12 +3208,17 @@ function generateRecurringBills(
 }
 
 
-/* DAYS */
+/* ============================================================
+   DAYS UNTIL
+   ============================================================ */
 
-function daysUntil(dateStr){
+function daysUntil(
+  dateStr
+){
 
   if(!dateStr)
     return 999999;
+
 
   const today =
     new Date(
@@ -2735,28 +3226,41 @@ function daysUntil(dateStr){
       'T00:00:00'
     );
 
+
   const d =
     new Date(
       dateStr +
       'T00:00:00'
     );
 
+
   return Math.ceil(
-    (d - today) /
-    (1000*60*60*24)
+    (
+      d - today
+    ) /
+    (
+      1000 *
+      60 *
+      60 *
+      24
+    )
   );
 
 }
 
 
-/* STATUS */
+/* ============================================================
+   STATUS BADGE
+   ============================================================ */
 
 function getStatusBadge(
   status,
   dueDate
 ){
 
-  if(status === 'Paid'){
+  if(
+    status === 'Paid'
+  ){
 
     return `
       <span class="badge paid">
@@ -2766,10 +3270,16 @@ function getStatusBadge(
 
   }
 
-  const days =
-    daysUntil(dueDate);
 
-  if(days < 0){
+  const days =
+    daysUntil(
+      dueDate
+    );
+
+
+  if(
+    days < 0
+  ){
 
     return `
       <span class="badge overdue">
@@ -2779,7 +3289,10 @@ function getStatusBadge(
 
   }
 
-  if(days <= 7){
+
+  if(
+    days <= 7
+  ){
 
     return `
       <span class="badge upcoming">
@@ -2788,6 +3301,7 @@ function getStatusBadge(
     `;
 
   }
+
 
   return `
     <span class="badge unpaid">
@@ -2798,7 +3312,9 @@ function getStatusBadge(
 }
 
 
-/* RECURRING TEXT */
+/* ============================================================
+   RECURRING TEXT
+   ============================================================ */
 
 function recurringText(b){
 
@@ -2818,7 +3334,9 @@ function recurringText(b){
 }
 
 
-/* INCOME RENDER */
+/* ============================================================
+   INCOME RENDER
+   ============================================================ */
 
 function renderIncome(){
 
@@ -2827,9 +3345,14 @@ function renderIncome(){
       'incomeTable'
     );
 
-  tbody.innerHTML = '';
 
-  if(!appData.income.length){
+  tbody.innerHTML =
+    '';
+
+
+  if(
+    !appData.income.length
+  ){
 
     tbody.innerHTML = `
       <tr>
@@ -2844,63 +3367,68 @@ function renderIncome(){
 
   }
 
-  appData.income.forEach(item=>{
 
-    tbody.innerHTML += `
+  appData.income.forEach(
+    item=>{
 
-      <tr>
+      tbody.innerHTML += `
 
-        <td>
-          ${item.date || ''}
-        </td>
+        <tr>
 
-        <td>
-          ${escapeHtml(
-            item.source || ''
-          )}
-        </td>
+          <td>
+            ${item.date || ''}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.category || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.source || ''
+            )}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.notes || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.category || ''
+            )}
+          </td>
 
-        <td>
-          ${formatMoney(
-            item.amount
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.notes || ''
+            )}
+          </td>
 
-        <td>
+          <td>
+            ${formatMoney(
+              item.amount
+            )}
+          </td>
 
-          <button
-            class="small danger"
-            onclick="deleteItem(
-              'income',
-              '${item.id}'
-            )">
-            Delete
-          </button>
+          <td>
 
-        </td>
+            <button
+              class="small danger"
+              onclick="deleteItem(
+                'income',
+                '${item.id}'
+              )">
+              Delete
+            </button>
 
-      </tr>
+          </td>
 
-    `;
+        </tr>
 
-  });
+      `;
+
+    }
+  );
 
 }
 
 
-/* EXPENSE RENDER */
+/* ============================================================
+   EXPENSE RENDER
+   ============================================================ */
 
 function renderExpenses(){
 
@@ -2909,9 +3437,14 @@ function renderExpenses(){
       'expensesTable'
     );
 
-  tbody.innerHTML = '';
 
-  if(!appData.expenses.length){
+  tbody.innerHTML =
+    '';
+
+
+  if(
+    !appData.expenses.length
+  ){
 
     tbody.innerHTML = `
       <tr>
@@ -2926,63 +3459,68 @@ function renderExpenses(){
 
   }
 
-  appData.expenses.forEach(item=>{
 
-    tbody.innerHTML += `
+  appData.expenses.forEach(
+    item=>{
 
-      <tr>
+      tbody.innerHTML += `
 
-        <td>
-          ${item.date || ''}
-        </td>
+        <tr>
 
-        <td>
-          ${escapeHtml(
-            item.name || ''
-          )}
-        </td>
+          <td>
+            ${item.date || ''}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.category || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.name || ''
+            )}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.notes || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.category || ''
+            )}
+          </td>
 
-        <td>
-          ${formatMoney(
-            item.amount
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.notes || ''
+            )}
+          </td>
 
-        <td>
+          <td>
+            ${formatMoney(
+              item.amount
+            )}
+          </td>
 
-          <button
-            class="small danger"
-            onclick="deleteItem(
-              'expenses',
-              '${item.id}'
-            )">
-            Delete
-          </button>
+          <td>
 
-        </td>
+            <button
+              class="small danger"
+              onclick="deleteItem(
+                'expenses',
+                '${item.id}'
+              )">
+              Delete
+            </button>
 
-      </tr>
+          </td>
 
-    `;
+        </tr>
 
-  });
+      `;
+
+    }
+  );
 
 }
 
 
-/* BILLS RENDER */
+/* ============================================================
+   BILLS RENDER
+   ============================================================ */
 
 function renderBills(){
 
@@ -2991,17 +3529,27 @@ function renderBills(){
       'billsTable'
     );
 
-  tbody.innerHTML = '';
+
+  tbody.innerHTML =
+    '';
+
 
   const sorted =
     [...appData.bills].sort(
       (a,b)=>
-        a.dueDate.localeCompare(
-          b.dueDate
+        String(
+          a.dueDate || ''
+        ).localeCompare(
+          String(
+            b.dueDate || ''
+          )
         )
     );
 
-  if(!sorted.length){
+
+  if(
+    !sorted.length
+  ){
 
     tbody.innerHTML = `
       <tr>
@@ -3016,114 +3564,119 @@ function renderBills(){
 
   }
 
-  sorted.forEach(b=>{
 
-    tbody.innerHTML += `
+  sorted.forEach(
+    b=>{
 
-      <tr>
+      tbody.innerHTML += `
 
-        <td>
-          ${escapeHtml(
-            b.billName || ''
-          )}
-        </td>
+        <tr>
 
-        <td>
-          ${b.dueDate || ''}
-        </td>
+          <td>
+            ${escapeHtml(
+              b.billName || ''
+            )}
+          </td>
 
-        <td>
-          ${getStatusBadge(
-            b.status,
-            b.dueDate
-          )}
-        </td>
+          <td>
+            ${b.dueDate || ''}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            b.category || ''
-          )}
-        </td>
+          <td>
+            ${getStatusBadge(
+              b.status,
+              b.dueDate
+            )}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            b.notes || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              b.category || ''
+            )}
+          </td>
 
-        <td>
-          ${formatMoney(
-            b.amount
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              b.notes || ''
+            )}
+          </td>
 
-        <td>
-          ${recurringText(b)}
-        </td>
+          <td>
+            ${formatMoney(
+              b.amount
+            )}
+          </td>
 
-        <td>
+          <td>
+            ${recurringText(b)}
+          </td>
 
-          <div class="row-actions">
+          <td>
 
-            ${
-              b.status === 'Paid'
+            <div class="row-actions">
 
-              ?
+              ${
+                b.status === 'Paid'
 
-              `
+                ?
+
+                `
+                <button
+                  class="small gray"
+                  onclick="markBillUnpaid(
+                    '${b.id}'
+                  )">
+                  Mark Unpaid
+                </button>
+                `
+
+                :
+
+                `
+                <button
+                  class="small"
+                  onclick="markBillPaid(
+                    '${b.id}'
+                  )">
+                  Mark Paid
+                </button>
+                `
+              }
+
               <button
-                class="small gray"
-                onclick="markBillUnpaid(
+                class="small edit"
+                onclick="editBill(
                   '${b.id}'
                 )">
-                Mark Unpaid
+                Edit
               </button>
-              `
 
-              :
-
-              `
               <button
-                class="small"
-                onclick="markBillPaid(
+                class="small danger"
+                onclick="deleteItem(
+                  'bills',
                   '${b.id}'
                 )">
-                Mark Paid
+                Delete
               </button>
-              `
-            }
 
-            <button
-              class="small edit"
-              onclick="editBill(
-                '${b.id}'
-              )">
-              Edit
-            </button>
+            </div>
 
-            <button
-              class="small danger"
-              onclick="deleteItem(
-                'bills',
-                '${b.id}'
-              )">
-              Delete
-            </button>
+          </td>
 
-          </div>
+        </tr>
 
-        </td>
+      `;
 
-      </tr>
-
-    `;
-
-  });
+    }
+  );
 
 }
 
 
-/* RECEIPTS RENDER */
+/* ============================================================
+   RECEIPTS RENDER
+   ============================================================ */
 
 function renderReceipts(){
 
@@ -3132,9 +3685,14 @@ function renderReceipts(){
       'receiptsTable'
     );
 
-  tbody.innerHTML = '';
 
-  if(!appData.receipts.length){
+  tbody.innerHTML =
+    '';
+
+
+  if(
+    !appData.receipts.length
+  ){
 
     tbody.innerHTML = `
       <tr>
@@ -3149,63 +3707,68 @@ function renderReceipts(){
 
   }
 
-  appData.receipts.forEach(item=>{
 
-    tbody.innerHTML += `
+  appData.receipts.forEach(
+    item=>{
 
-      <tr>
+      tbody.innerHTML += `
 
-        <td>
-          ${item.date || ''}
-        </td>
+        <tr>
 
-        <td>
-          ${escapeHtml(
-            item.vendor || ''
-          )}
-        </td>
+          <td>
+            ${item.date || ''}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.category || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.vendor || ''
+            )}
+          </td>
 
-        <td>
-          ${escapeHtml(
-            item.notes || ''
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.category || ''
+            )}
+          </td>
 
-        <td>
-          ${formatMoney(
-            item.amount
-          )}
-        </td>
+          <td>
+            ${escapeHtml(
+              item.notes || ''
+            )}
+          </td>
 
-        <td>
+          <td>
+            ${formatMoney(
+              item.amount
+            )}
+          </td>
 
-          <button
-            class="small danger"
-            onclick="deleteItem(
-              'receipts',
-              '${item.id}'
-            )">
-            Delete
-          </button>
+          <td>
 
-        </td>
+            <button
+              class="small danger"
+              onclick="deleteItem(
+                'receipts',
+                '${item.id}'
+              )">
+              Delete
+            </button>
 
-      </tr>
+          </td>
 
-    `;
+        </tr>
 
-  });
+      `;
+
+    }
+  );
 
 }
 
 
-/* DASHBOARD */
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
 
 function renderDashboard(){
 
@@ -3213,7 +3776,9 @@ function renderDashboard(){
     appData.income.reduce(
       (sum,x)=>
         sum +
-        Number(x.amount || 0),
+        Number(
+          x.amount || 0
+        ),
       0
     );
 
@@ -3222,10 +3787,16 @@ function renderDashboard(){
     appData.expenses.reduce(
       (sum,x)=>
         sum +
-        Number(x.amount || 0),
+        Number(
+          x.amount || 0
+        ),
       0
     );
 
+
+  /*
+    Only bills that are NOT Paid count as unpaid.
+  */
 
   const unpaidBills =
     appData.bills.filter(
@@ -3238,37 +3809,59 @@ function renderDashboard(){
     unpaidBills.reduce(
       (sum,b)=>
         sum +
-        Number(b.amount || 0),
+        Number(
+          b.amount || 0
+        ),
       0
     );
 
+
+  /*
+    Overdue means unpaid AND due before today.
+  */
 
   const overdue =
     unpaidBills.filter(
       b=>
         b.dueDate &&
-        daysUntil(b.dueDate) < 0
+        b.dueDate < todayStr()
     );
 
 
+  /*
+    Due soon means today through 7 days from today.
+  */
+
   const dueSoon =
-    unpaidBills.filter(b=>{
+    unpaidBills.filter(
+      b=>{
 
-      if(!b.dueDate)
-        return false;
+        if(!b.dueDate)
+          return false;
 
-      const d =
-        daysUntil(b.dueDate);
+        const d =
+          daysUntil(
+            b.dueDate
+          );
 
-      return d >= 0 && d <= 7;
+        return (
+          d >= 0 &&
+          d <= 7
+        );
 
-    });
+      }
+    );
 
+
+  /*
+    Upcoming means today or later.
+  */
 
   const upcoming =
-    unpaidBills.filter(b=>
-      b.dueDate &&
-      daysUntil(b.dueDate) >= 0
+    unpaidBills.filter(
+      b=>
+        b.dueDate &&
+        b.dueDate >= todayStr()
     );
 
 
@@ -3330,19 +3923,27 @@ function renderDashboard(){
       'dashboardOverdueTable'
     );
 
-  overdueTable.innerHTML = '';
+
+  overdueTable.innerHTML =
+    '';
 
 
   const sortedOverdue =
     [...overdue].sort(
       (a,b)=>
-        a.dueDate.localeCompare(
-          b.dueDate
+        String(
+          a.dueDate || ''
+        ).localeCompare(
+          String(
+            b.dueDate || ''
+          )
         )
     );
 
 
-  if(!sortedOverdue.length){
+  if(
+    !sortedOverdue.length
+  ){
 
     overdueTable.innerHTML = `
       <tr>
@@ -3357,44 +3958,46 @@ function renderDashboard(){
 
     sortedOverdue
       .slice(0,20)
-      .forEach(b=>{
+      .forEach(
+        b=>{
 
-        overdueTable.innerHTML += `
+          overdueTable.innerHTML += `
 
-          <tr>
+            <tr>
 
-            <td>
-              ${escapeHtml(
-                b.billName || ''
-              )}
-            </td>
+              <td>
+                ${escapeHtml(
+                  b.billName || ''
+                )}
+              </td>
 
-            <td>
-              ${b.dueDate || ''}
-            </td>
+              <td>
+                ${b.dueDate || ''}
+              </td>
 
-            <td>
-              ${getStatusBadge(
-                b.status,
-                b.dueDate
-              )}
-            </td>
+              <td>
+                ${getStatusBadge(
+                  b.status,
+                  b.dueDate
+                )}
+              </td>
 
-            <td>
-              ${formatMoney(
-                b.amount
-              )}
-            </td>
+              <td>
+                ${formatMoney(
+                  b.amount
+                )}
+              </td>
 
-            <td>
-              ${recurringText(b)}
-            </td>
+              <td>
+                ${recurringText(b)}
+              </td>
 
-          </tr>
+            </tr>
 
-        `;
+          `;
 
-      });
+        }
+      );
 
   }
 
@@ -3406,19 +4009,27 @@ function renderDashboard(){
       'dashboardUpcomingTable'
     );
 
-  upcomingTable.innerHTML = '';
+
+  upcomingTable.innerHTML =
+    '';
 
 
   const sortedUpcoming =
     [...upcoming].sort(
       (a,b)=>
-        a.dueDate.localeCompare(
-          b.dueDate
+        String(
+          a.dueDate || ''
+        ).localeCompare(
+          String(
+            b.dueDate || ''
+          )
         )
     );
 
 
-  if(!sortedUpcoming.length){
+  if(
+    !sortedUpcoming.length
+  ){
 
     upcomingTable.innerHTML = `
       <tr>
@@ -3433,68 +4044,80 @@ function renderDashboard(){
 
     sortedUpcoming
       .slice(0,20)
-      .forEach(b=>{
+      .forEach(
+        b=>{
 
-        upcomingTable.innerHTML += `
+          upcomingTable.innerHTML += `
 
-          <tr>
+            <tr>
 
-            <td>
-              ${escapeHtml(
-                b.billName || ''
-              )}
-            </td>
+              <td>
+                ${escapeHtml(
+                  b.billName || ''
+                )}
+              </td>
 
-            <td>
-              ${b.dueDate || ''}
-            </td>
+              <td>
+                ${b.dueDate || ''}
+              </td>
 
-            <td>
-              ${getStatusBadge(
-                b.status,
-                b.dueDate
-              )}
-            </td>
+              <td>
+                ${getStatusBadge(
+                  b.status,
+                  b.dueDate
+                )}
+              </td>
 
-            <td>
-              ${formatMoney(
-                b.amount
-              )}
-            </td>
+              <td>
+                ${formatMoney(
+                  b.amount
+                )}
+              </td>
 
-            <td>
-              ${recurringText(b)}
-            </td>
+              <td>
+                ${recurringText(b)}
+              </td>
 
-          </tr>
+            </tr>
 
-        `;
+          `;
 
-      });
+        }
+      );
 
   }
 
 }
 
 
-/* TAX SUMMARY */
+/* ============================================================
+   TAX SUMMARY
+   ============================================================ */
 
 function renderTaxSummary(){
 
   const categories = {};
 
 
-  appData.expenses.forEach(e=>{
+  appData.expenses.forEach(
+    e=>{
 
-    const cat =
-      e.category ||
-      'Other';
+      const cat =
+        e.category ||
+        'Other';
 
-    categories[cat] =
-      (categories[cat] || 0) +
-      Number(e.amount || 0);
 
-  });
+      categories[cat] =
+        (
+          categories[cat] ||
+          0
+        ) +
+        Number(
+          e.amount || 0
+        );
+
+    }
+  );
 
 
   const grid =
@@ -3502,7 +4125,9 @@ function renderTaxSummary(){
       'taxCategoryGrid'
     );
 
-  grid.innerHTML = '';
+
+  grid.innerHTML =
+    '';
 
 
   const keys =
@@ -3511,34 +4136,38 @@ function renderTaxSummary(){
     ).sort();
 
 
-  if(!keys.length){
+  if(
+    !keys.length
+  ){
 
     grid.innerHTML =
       '<div class="muted">No expense categories yet.</div>';
 
   }else{
 
-    keys.forEach(cat=>{
+    keys.forEach(
+      cat=>{
 
-      grid.innerHTML += `
+        grid.innerHTML += `
 
-        <div class="stat">
+          <div class="stat">
 
-          <h3>
-            ${escapeHtml(cat)}
-          </h3>
+            <h3>
+              ${escapeHtml(cat)}
+            </h3>
 
-          <div class="num">
-            ${formatMoney(
-              categories[cat]
-            )}
+            <div class="num">
+              ${formatMoney(
+                categories[cat]
+              )}
+            </div>
+
           </div>
 
-        </div>
+        `;
 
-      `;
-
-    });
+      }
+    );
 
   }
 
@@ -3547,7 +4176,9 @@ function renderTaxSummary(){
     appData.income.reduce(
       (sum,x)=>
         sum +
-        Number(x.amount || 0),
+        Number(
+          x.amount || 0
+        ),
       0
     );
 
@@ -3556,7 +4187,9 @@ function renderTaxSummary(){
     appData.expenses.reduce(
       (sum,x)=>
         sum +
-        Number(x.amount || 0),
+        Number(
+          x.amount || 0
+        ),
       0
     );
 
@@ -3587,7 +4220,9 @@ function renderTaxSummary(){
 }
 
 
-/* CHECKLIST */
+/* ============================================================
+   CHECKLIST
+   ============================================================ */
 
 function renderChecklist(){
 
@@ -3596,7 +4231,9 @@ function renderChecklist(){
       'checklistBox'
     );
 
-  box.innerHTML = '';
+
+  box.innerHTML =
+    '';
 
 
   appData.checklist.forEach(
@@ -3637,10 +4274,13 @@ function renderChecklist(){
 }
 
 
-function toggleChecklist(index){
+function toggleChecklist(
+  index
+){
 
   appData.checklist[index].done =
     !appData.checklist[index].done;
+
 
   saveData();
 
@@ -3649,7 +4289,9 @@ function toggleChecklist(index){
 }
 
 
-/* EXPORT */
+/* ============================================================
+   EXPORT
+   ============================================================ */
 
 function exportBackup(){
 
@@ -3669,7 +4311,9 @@ function exportBackup(){
 
 
   const a =
-    document.createElement('a');
+    document.createElement(
+      'a'
+    );
 
 
   a.href =
@@ -3685,19 +4329,29 @@ function exportBackup(){
   a.click();
 
 
-  setTimeout(()=>{
-    URL.revokeObjectURL(a.href);
-  },1000);
+  setTimeout(
+    ()=>{
+      URL.revokeObjectURL(
+        a.href
+      );
+    },
+    1000
+  );
 
 }
 
 
-/* IMPORT */
+/* ============================================================
+   IMPORT
+   ============================================================ */
 
-function importBackup(event){
+function importBackup(
+  event
+){
 
   const file =
     event.target.files[0];
+
 
   if(!file)
     return;
@@ -3719,67 +4373,121 @@ function importBackup(event){
 
 
         if(
-          confirm(
+          !confirm(
             'Import this backup and replace current data?'
           )
         ){
 
-          appData = {
-            ...appData,
-            ...data
+          return;
+
+        }
+
+
+        appData = {
+
+          ...appData,
+
+          ...data
+
+        };
+
+
+        if(
+          !Array.isArray(
+            appData.income
+          )
+        ){
+
+          appData.income = [];
+
+        }
+
+
+        if(
+          !Array.isArray(
+            appData.expenses
+          )
+        ){
+
+          appData.expenses = [];
+
+        }
+
+
+        if(
+          !Array.isArray(
+            appData.bills
+          )
+        ){
+
+          appData.bills = [];
+
+        }
+
+
+        if(
+          !Array.isArray(
+            appData.receipts
+          )
+        ){
+
+          appData.receipts = [];
+
+        }
+
+
+        if(
+          !Array.isArray(
+            appData.checklist
+          )
+        ){
+
+          appData.checklist = [];
+
+        }
+
+
+        if(
+          !appData.recurringLog
+        ){
+
+          appData.recurringLog = {
+            lastRunDate:''
           };
 
+        }
 
-          if(
-            !Array.isArray(
-              appData.income
+
+        /*
+          Normalize imported bills.
+        */
+
+        appData.bills.forEach(
+          b=>{
+
+            if(!b.id)
+              b.id = uid();
+
+            if(
+              typeof b.billName !==
+              'string'
             )
-          )
-            appData.income = [];
+              b.billName = '';
 
-
-          if(
-            !Array.isArray(
-              appData.expenses
+            if(
+              typeof b.amount !==
+              'number'
             )
-          )
-            appData.expenses = [];
+              b.amount =
+                Number(
+                  b.amount || 0
+                );
 
-
-          if(
-            !Array.isArray(
-              appData.bills
+            if(
+              typeof b.status !==
+              'string'
             )
-          )
-            appData.bills = [];
-
-
-          if(
-            !Array.isArray(
-              appData.receipts
-            )
-          )
-            appData.receipts = [];
-
-
-          if(
-            !Array.isArray(
-              appData.checklist
-            )
-          )
-            appData.checklist = [];
-
-
-          if(!appData.recurringLog){
-
-            appData.recurringLog = {
-              lastRunDate:''
-            };
-
-          }
-
-
-          appData.bills.forEach(b=>{
+              b.status = 'Unpaid';
 
             if(
               typeof b.recurring !==
@@ -3803,7 +4511,13 @@ function importBackup(event){
               !b.parentRecurringId &&
               b.recurring
             )
-              b.parentRecurringId = b.id;
+              b.parentRecurringId =
+                b.id;
+
+            if(
+              !b.parentRecurringId
+            )
+              b.parentRecurringId = '';
 
             if(
               typeof b.lastGeneratedDate !==
@@ -3811,38 +4525,46 @@ function importBackup(event){
             )
               b.lastGeneratedDate = '';
 
-          });
+          }
+        );
 
 
-          /*
-            Imported backups are allowed to run
-            through the same one-time cleanup.
-          */
+        /*
+          Remove the cleanup version so the imported
+          backup gets checked by the current migration.
 
-          localStorage.removeItem(
-            OVERDUE_CLEANUP_KEY
-          );
+          This is intentional for imported backups.
+        */
 
-
-          saveData();
-
-
-          /*
-            Run cleanup on imported data too.
-          */
-
-          cleanupOldOverdueBills();
-
-          renderAll();
+        localStorage.removeItem(
+          OVERDUE_CLEANUP_KEY
+        );
 
 
-          alert(
-            'Backup imported.'
-          );
+        saveData();
 
-        }
+
+        /*
+          Run the current migration on the imported
+          backup before rendering it.
+        */
+
+        cleanupOldOverdueBills();
+
+
+        renderAll();
+
+
+        alert(
+          'Backup imported.'
+        );
+
 
       }catch(err){
+
+        console.error(
+          err
+        );
 
         alert(
           'Invalid backup file.'
@@ -3853,14 +4575,20 @@ function importBackup(event){
     };
 
 
-  reader.readAsText(file);
+  reader.readAsText(
+    file
+  );
 
-  event.target.value = '';
+
+  event.target.value =
+    '';
 
 }
 
 
-/* CLEAR ALL */
+/* ============================================================
+   CLEAR ALL DATA
+   ============================================================ */
 
 function clearAllData(){
 
@@ -3868,8 +4596,11 @@ function clearAllData(){
     !confirm(
       'Clear ALL data? This cannot be undone unless you exported a backup.'
     )
-  )
+  ){
+
     return;
+
+  }
 
 
   localStorage.removeItem(
@@ -3878,11 +4609,11 @@ function clearAllData(){
 
 
   /*
-    The old overdue cleanup is considered
-    completed after this point.
+    Mark the current migration as complete for
+    the newly empty database.
 
-    A brand-new database should NOT delete
-    anything the user manually enters later.
+    This prevents a bill that the user enters later
+    from being deleted simply because its date is old.
   */
 
   localStorage.setItem(
@@ -3957,12 +4688,14 @@ function clearAllData(){
       'cleanupNotice'
     );
 
+
   if(notice){
 
     notice.style.display =
       'none';
 
-    notice.innerHTML = '';
+    notice.innerHTML =
+      '';
 
   }
 
@@ -3974,9 +4707,13 @@ function clearAllData(){
 }
 
 
-/* ESCAPE HTML */
+/* ============================================================
+   ESCAPE HTML
+   ============================================================ */
 
-function escapeHtml(str){
+function escapeHtml(
+  str
+){
 
   return String(
     str || ''
@@ -4010,7 +4747,9 @@ function escapeHtml(str){
 }
 
 
-/* RENDER EVERYTHING */
+/* ============================================================
+   RENDER EVERYTHING
+   ============================================================ */
 
 function renderAll(){
 
@@ -4033,7 +4772,9 @@ function renderAll(){
 }
 
 
-/* START APP */
+/* ============================================================
+   START APP
+   ============================================================ */
 
 loadData();
 
@@ -4043,12 +4784,15 @@ toggleRecurringFields();
 
 
 /*
-  IMPORTANT:
+  THIS IS THE IMPORTANT ORDER:
 
-  This runs BEFORE the dashboard is rendered,
-  so the old overdue bills disappear immediately.
+  1. Load existing browser data.
+  2. Normalize bills.
+  3. Run VERSION 3 cleanup.
+  4. Render dashboard.
 
-  Version 2 runs once.
+  Therefore the old May/June unpaid overdue records
+  are removed BEFORE the dashboard is displayed.
 */
 
 cleanupOldOverdueBills();
@@ -4060,7 +4804,13 @@ renderAll();
 /*
   Check recurring bills after cleanup.
 
-  This will NOT create missed months.
+  This does NOT create missed months.
+
+  If the latest recurring bill is unpaid,
+  nothing is created.
+
+  If the latest recurring bill is paid,
+  only the next occurrence is created.
 */
 
 generateRecurringBills(false);
