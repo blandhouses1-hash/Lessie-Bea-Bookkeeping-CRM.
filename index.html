@@ -276,6 +276,15 @@ hr{
   color:#8a1455;
 }
 
+.cleanup-note{
+  background:#f3fff5;
+  border-left:5px solid #38a169;
+  padding:12px;
+  border-radius:10px;
+  margin-bottom:18px;
+  display:none;
+}
+
 @media(max-width:700px){
   h1{
     font-size:22px;
@@ -342,6 +351,8 @@ hr{
     Your data is saved in this browser.
     Export a backup often so you do not lose your records.
   </div>
+
+  <div id="cleanupNotice" class="cleanup-note"></div>
 
   <div class="tabs">
 
@@ -1142,16 +1153,24 @@ const STORAGE_KEY =
 
 
 /*
-  This migration runs ONLY ONCE.
+  VERSIONED CLEANUP
 
-  It removes the old unpaid bills that were already
-  past due when this corrected version was installed.
+  Your old code used a simple "yes" flag.
+  That flag had already been set, which prevented
+  the old bills from being cleaned up.
 
-  It does NOT keep deleting bills that become overdue
-  later.
+  This version uses a new version number.
+  Therefore the cleanup below WILL run once
+  on the existing database.
+
+  After version 2 is complete, it will never
+  automatically delete future overdue bills.
 */
-const OLD_OVERDUE_CLEANUP_KEY =
-  'lessieBeaBookkeepingOldOverdueCleanupDone';
+
+const OVERDUE_CLEANUP_VERSION = '2';
+
+const OVERDUE_CLEANUP_KEY =
+  'lessieBeaBookkeepingOverdueCleanupVersion';
 
 
 let appData = {
@@ -1280,7 +1299,7 @@ function loadData(){
         };
 
       /*
-        Upgrade older bill records safely.
+        Normalize older bills.
       */
 
       appData.bills.forEach(b=>{
@@ -1297,11 +1316,11 @@ function loadData(){
         if(typeof b.generatedFromRecurring !== 'boolean')
           b.generatedFromRecurring = false;
 
-        if(typeof b.lastGeneratedDate !== 'string')
-          b.lastGeneratedDate = '';
-
         if(!b.parentRecurringId && b.recurring)
           b.parentRecurringId = b.id;
+
+        if(typeof b.lastGeneratedDate !== 'string')
+          b.lastGeneratedDate = '';
 
       });
 
@@ -1316,21 +1335,7 @@ function loadData(){
 }
 
 
-/* SAVE */
-
-function saveData(){
-
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify(appData)
-  );
-
-}
-
-
-/*
-  DATE HELPERS
-*/
+/* DATE HELPERS */
 
 function addMonths(dateStr,months){
 
@@ -1419,75 +1424,107 @@ function getNextDueDate(
 
 
 /*
-  ONE-TIME OLD OVERDUE CLEANUP
+  Find the first scheduled occurrence
+  AFTER today.
 
-  IMPORTANT:
-
-  The user's existing old overdue bills are being
-  treated as already paid and therefore removed.
-
-  Paid bills are NEVER removed.
-
-  Current and future bills are NEVER removed.
-
-  Recurring bills need special handling so that
-  deleting old overdue occurrences does not destroy
-  the recurring series.
-
-  If a recurring family has a current/future occurrence,
-  that occurrence is kept.
-
-  If a recurring family has ONLY old overdue unpaid
-  occurrences, the old occurrences are removed and
-  ONE NEW NEXT occurrence is created in the future.
+  This is used only for the one-time cleanup.
 */
 
-function cleanupOldOverdueBills(){
-
-  const alreadyDone =
-    localStorage.getItem(
-      OLD_OVERDUE_CLEANUP_KEY
-    );
-
-  if(alreadyDone === 'yes')
-    return;
-
+function getNextFutureDate(
+  startingDate,
+  frequency
+){
 
   const today =
     todayStr();
 
+  let nextDate =
+    startingDate;
 
-  const oldOverdue =
-    appData.bills.filter(b=>{
+  let safety = 0;
 
-      if(b.status === 'Paid')
-        return false;
+  while(
+    nextDate <= today &&
+    safety < 500
+  ){
 
-      if(!b.dueDate)
-        return false;
+    const calculated =
+      getNextDueDate(
+        nextDate,
+        frequency
+      );
 
-      return b.dueDate < today;
+    if(calculated === nextDate)
+      break;
 
-    });
+    nextDate = calculated;
+
+    safety++;
+
+  }
+
+  return nextDate;
+
+}
 
 
-  if(!oldOverdue.length){
+/*
+  ONE-TIME OLD OVERDUE CLEANUP
 
-    localStorage.setItem(
-      OLD_OVERDUE_CLEANUP_KEY,
-      'yes'
+  The user's existing overdue bills are being treated
+  as already paid.
+
+  Non-recurring overdue unpaid bills:
+    DELETE
+
+  Recurring overdue unpaid bills:
+    DELETE old occurrence
+
+    If a current/future occurrence already exists:
+      KEEP it
+
+    If no current/future occurrence exists:
+      create ONE next future occurrence
+
+  This preserves recurring bills without bringing
+  old debt back into the tracker.
+*/
+
+function cleanupOldOverdueBills(){
+
+  const completedVersion =
+    localStorage.getItem(
+      OVERDUE_CLEANUP_KEY
     );
 
-    saveData();
+  if(
+    completedVersion ===
+    OVERDUE_CLEANUP_VERSION
+  ){
 
     return;
 
   }
 
 
+  const today =
+    todayStr();
+
+
   /*
-    Save the recurring families before deleting
-    their old occurrences.
+    Find old unpaid overdue bills.
+  */
+
+  const oldOverdue =
+    appData.bills.filter(b=>
+      b.status !== 'Paid' &&
+      b.dueDate &&
+      b.dueDate < today
+    );
+
+
+  /*
+    Remember recurring families BEFORE deleting.
   */
 
   const recurringFamilies = {};
@@ -1510,9 +1547,10 @@ function cleanupOldOverdueBills(){
 
 
   /*
-    DELETE ALL OLD OVERDUE UNPAID RECORDS.
+    Delete ALL old unpaid overdue records.
 
-    Paid records remain untouched.
+    Paid bills are NOT touched.
+    Current/future bills are NOT touched.
   */
 
   appData.bills =
@@ -1524,157 +1562,190 @@ function cleanupOldOverdueBills(){
       if(!b.dueDate)
         return true;
 
-      return b.dueDate >= today;
+      if(b.dueDate < today)
+        return false;
+
+      return true;
 
     });
+
+
+  let createdRecurring = 0;
 
 
   /*
-    Make sure recurring families still have
-    a future occurrence.
+    Restore the recurring schedule correctly.
 
-    If a family already has a current/future
-    bill, do nothing.
+    If a future/current bill already exists,
+    don't create another.
 
-    If the old overdue records were the only
-    records in that family, create the NEXT
-    future bill.
+    If none exists, create the NEXT occurrence
+    after today from the most recent old record.
   */
 
-  Object.keys(recurringFamilies)
-    .forEach(familyId=>{
+  Object.keys(
+    recurringFamilies
+  ).forEach(familyId=>{
 
-      const familyOld =
-        recurringFamilies[familyId];
+    const family =
+      recurringFamilies[familyId];
 
-
-      const hasFutureOccurrence =
-        appData.bills.some(b=>
-          (b.parentRecurringId || b.id)
-            === familyId &&
-          b.dueDate &&
-          b.dueDate >= today
-        );
-
-
-      if(hasFutureOccurrence)
-        return;
+    const hasCurrentOrFuture =
+      appData.bills.some(b=>
+        (b.parentRecurringId || b.id)
+        === familyId &&
+        b.dueDate &&
+        b.dueDate >= today
+    );
 
 
-      /*
-        Use the latest old occurrence as the
-        template for the recurring series.
-      */
-
-      const template =
-        [...familyOld].sort(
-          (a,b)=>
-            b.dueDate.localeCompare(
-              a.dueDate
-            )
-        )[0];
+    if(hasCurrentOrFuture)
+      return;
 
 
-      if(!template)
-        return;
+    const template =
+      [...family].sort(
+        (a,b)=>
+          b.dueDate.localeCompare(
+            a.dueDate
+          )
+      )[0];
 
 
-      let nextDate =
-        template.dueDate;
+    if(!template)
+      return;
 
 
-      /*
-        Keep advancing until the next bill is
-        actually in the FUTURE.
-
-        This intentionally skips the old overdue
-        month because the user said those old
-        past-due bills are already paid.
-      */
-
-      let safety = 0;
-
-      while(
-        nextDate <= today &&
-        safety < 120
-      ){
-
-        const newDate =
-          getNextDueDate(
-            nextDate,
-            template.frequency
-          );
-
-        if(newDate === nextDate)
-          break;
-
-        nextDate = newDate;
-
-        safety++;
-
-      }
+    const frequency =
+      template.frequency ||
+      'Monthly';
 
 
-      if(
-        !nextDate ||
-        nextDate <= today
-      )
-        return;
+    const nextDate =
+      getNextFutureDate(
+        template.dueDate,
+        frequency
+      );
 
 
-      if(
-        template.recurringEndDate &&
-        nextDate >
-        template.recurringEndDate
-      ){
+    /*
+      If the recurring end date has passed,
+      don't create another occurrence.
+    */
 
-        return;
+    if(
+      template.recurringEndDate &&
+      nextDate >
+      template.recurringEndDate
+    ){
 
-      }
+      return;
+
+    }
 
 
-      appData.bills.push({
+    /*
+      Make sure there isn't already a bill
+      with this family/date.
+    */
 
-        ...template,
+    const exists =
+      appData.bills.some(b=>
+        (b.parentRecurringId || b.id)
+        === familyId &&
+        b.dueDate === nextDate
+      );
 
-        id:uid(),
 
-        dueDate:nextDate,
+    if(exists)
+      return;
 
-        status:'Unpaid',
 
-        generatedFromRecurring:true,
+    const newBill = {
 
-        lastGeneratedDate:today,
+      ...template,
 
-        parentRecurringId:familyId
+      id:uid(),
 
-      });
+      dueDate:nextDate,
 
-    });
+      status:'Unpaid',
 
+      generatedFromRecurring:true,
+
+      lastGeneratedDate:today,
+
+      parentRecurringId:familyId
+
+    };
+
+
+    appData.bills.push(
+      newBill
+    );
+
+    createdRecurring++;
+
+  });
+
+
+  /*
+    Mark this cleanup version complete.
+
+    It will NOT run again automatically.
+  */
 
   localStorage.setItem(
-    OLD_OVERDUE_CLEANUP_KEY,
-    'yes'
+    OVERDUE_CLEANUP_KEY,
+    OVERDUE_CLEANUP_VERSION
   );
-
-
-  appData.recurringLog.lastRunDate =
-    today;
 
 
   saveData();
 
 
-  alert(
-    `${oldOverdue.length} old past-due unpaid bill(s) were removed. Current and future bills were kept.`
-  );
+  /*
+    Show a small confirmation on the page
+    instead of repeatedly deleting anything.
+  */
+
+  if(oldOverdue.length){
+
+    const notice =
+      document.getElementById(
+        'cleanupNotice'
+      );
+
+    if(notice){
+
+      notice.style.display =
+        'block';
+
+      notice.innerHTML =
+        `✅ Old past-due bills were removed. ` +
+        `${oldOverdue.length} old overdue bill(s) cleared` +
+        (
+          createdRecurring
+            ? ` and ${createdRecurring} next recurring bill(s) were scheduled.`
+            : '.'
+        );
+
+    }
+
+  }
 
 }
 
 
-/* FORMAT MONEY */
+function saveData(){
+
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify(appData)
+  );
+
+}
+
 
 function formatMoney(n){
 
@@ -1682,8 +1753,6 @@ function formatMoney(n){
 
 }
 
-
-/* SHOW SECTION */
 
 function showSection(id,btn){
 
@@ -1708,8 +1777,6 @@ function showSection(id,btn){
 }
 
 
-/* DEFAULT DATES */
-
 function setDefaultDates(){
 
   const t =
@@ -1733,8 +1800,6 @@ function setDefaultDates(){
 }
 
 
-/* CLEAR INPUTS */
-
 function clearInputs(ids){
 
   ids.forEach(id=>{
@@ -1753,13 +1818,11 @@ function clearInputs(ids){
 
   setDefaultDates();
 
-
   const status =
     document.getElementById('billStatus');
 
   if(status)
     status.value = 'Unpaid';
-
 
   const recurring =
     document.getElementById('billRecurring');
@@ -1767,15 +1830,12 @@ function clearInputs(ids){
   if(recurring)
     recurring.value = 'No';
 
-
   toggleRecurringFields();
 
 }
 
 
-/* =========================
-   INCOME
-========================= */
+/* INCOME */
 
 function saveIncome(){
 
@@ -1810,7 +1870,6 @@ function saveIncome(){
 
   };
 
-
   if(
     !item.date ||
     !item.source ||
@@ -1824,7 +1883,6 @@ function saveIncome(){
     return;
 
   }
-
 
   appData.income.unshift(item);
 
@@ -1843,9 +1901,7 @@ function saveIncome(){
 }
 
 
-/* =========================
-   EXPENSES
-========================= */
+/* EXPENSES */
 
 function saveExpense(){
 
@@ -1882,7 +1938,6 @@ function saveExpense(){
 
   };
 
-
   if(
     !item.date ||
     !item.name ||
@@ -1896,7 +1951,6 @@ function saveExpense(){
     return;
 
   }
-
 
   appData.expenses.unshift(item);
 
@@ -1915,9 +1969,7 @@ function saveExpense(){
 }
 
 
-/* =========================
-   RECEIPTS
-========================= */
+/* RECEIPTS */
 
 function saveReceipt(){
 
@@ -1954,7 +2006,6 @@ function saveReceipt(){
 
   };
 
-
   if(
     !item.date ||
     !item.vendor ||
@@ -1968,7 +2019,6 @@ function saveReceipt(){
     return;
 
   }
-
 
   appData.receipts.unshift(item);
 
@@ -1987,9 +2037,7 @@ function saveReceipt(){
 }
 
 
-/* =========================
-   RECURRING FORM
-========================= */
+/* RECURRING FORM */
 
 function toggleRecurringFields(){
 
@@ -1998,12 +2046,10 @@ function toggleRecurringFields(){
       'billRecurring'
     ).value === 'Yes';
 
-
   document.getElementById(
     'recurringFrequencyWrap'
   ).style.display =
     recurring ? 'block' : 'none';
-
 
   document.getElementById(
     'recurringEndWrap'
@@ -2013,9 +2059,7 @@ function toggleRecurringFields(){
 }
 
 
-/* =========================
-   BILLS
-========================= */
+/* BILLS */
 
 function saveBill(){
 
@@ -2024,18 +2068,15 @@ function saveBill(){
       .getElementById('editingBillId')
       .value;
 
-
   const recurring =
     document
       .getElementById('billRecurring')
       .value === 'Yes';
 
-
   const name =
     document
       .getElementById('billName')
       .value.trim();
-
 
   const amount =
     parseFloat(
@@ -2044,12 +2085,10 @@ function saveBill(){
         .value || 0
     );
 
-
   const dueDate =
     document
       .getElementById('billDueDate')
       .value;
-
 
   if(
     !name ||
@@ -2075,10 +2114,8 @@ function saveBill(){
         b=>b.id === editingId
       );
 
-
     if(!bill)
       return;
-
 
     bill.billName = name;
 
@@ -2103,7 +2140,6 @@ function saveBill(){
 
     bill.recurring = recurring;
 
-
     bill.frequency =
       recurring
         ? document
@@ -2111,14 +2147,12 @@ function saveBill(){
             .value
         : '';
 
-
     bill.recurringEndDate =
       recurring
         ? document
             .getElementById('billRecurringEndDate')
             .value
         : '';
-
 
     if(
       recurring &&
@@ -2130,7 +2164,6 @@ function saveBill(){
 
     }
 
-
     if(!recurring){
 
       bill.parentRecurringId = '';
@@ -2138,7 +2171,6 @@ function saveBill(){
       bill.generatedFromRecurring = false;
 
     }
-
 
     saveData();
 
@@ -2156,7 +2188,9 @@ function saveBill(){
   /* CREATE NEW BILL */
 
   const familyId =
-    recurring ? uid() : '';
+    recurring
+      ? uid()
+      : '';
 
 
   const item = {
@@ -2216,26 +2250,6 @@ function saveBill(){
 
   renderAll();
 
-
-  /*
-    If the new bill was entered as Paid and
-    recurring, immediately create its next bill.
-  */
-
-  if(
-    item.recurring &&
-    item.status === 'Paid'
-  ){
-
-    generateNextRecurringBill(item);
-
-    saveData();
-
-    renderAll();
-
-  }
-
-
   clearInputs([
     'billName',
     'billAmount',
@@ -2248,9 +2262,7 @@ function saveBill(){
 }
 
 
-/* =========================
-   EDIT BILL
-========================= */
+/* EDIT BILL */
 
 function editBill(id){
 
@@ -2259,88 +2271,73 @@ function editBill(id){
       b=>b.id === id
     );
 
-
   if(!bill)
     return;
-
 
   document.getElementById(
     'editingBillId'
   ).value =
     bill.id;
 
-
   document.getElementById(
     'billName'
   ).value =
     bill.billName || '';
-
 
   document.getElementById(
     'billAmount'
   ).value =
     bill.amount || '';
 
-
   document.getElementById(
     'billDueDate'
   ).value =
     bill.dueDate || '';
-
 
   document.getElementById(
     'billStatus'
   ).value =
     bill.status || 'Unpaid';
 
-
   document.getElementById(
     'billCategory'
   ).value =
     bill.category || '';
-
 
   document.getElementById(
     'billNotes'
   ).value =
     bill.notes || '';
 
-
   document.getElementById(
     'billRecurring'
   ).value =
     bill.recurring ? 'Yes' : 'No';
-
 
   document.getElementById(
     'billFrequency'
   ).value =
     bill.frequency || 'Monthly';
 
-
   document.getElementById(
     'billRecurringEndDate'
   ).value =
     bill.recurringEndDate || '';
-
 
   document.getElementById(
     'billFormTitle'
   ).textContent =
     'Edit Bill';
 
-
   document.getElementById(
     'saveBillButton'
   ).textContent =
     'Update Bill';
 
-
   document.getElementById(
     'cancelBillButton'
   ).style.display =
     'inline-block';
-
 
   document.getElementById(
     'billFormCard'
@@ -2348,9 +2345,7 @@ function editBill(id){
     'bill-editing'
   );
 
-
   toggleRecurringFields();
-
 
   document.getElementById(
     'billFormCard'
@@ -2362,9 +2357,7 @@ function editBill(id){
 }
 
 
-/* =========================
-   CANCEL EDIT
-========================= */
+/* CANCEL EDIT */
 
 function cancelBillEdit(){
 
@@ -2372,31 +2365,26 @@ function cancelBillEdit(){
     'editingBillId'
   ).value = '';
 
-
   document.getElementById(
     'billFormTitle'
   ).textContent =
     'Add Bill';
-
 
   document.getElementById(
     'saveBillButton'
   ).textContent =
     'Save Bill';
 
-
   document.getElementById(
     'cancelBillButton'
   ).style.display =
     'none';
-
 
   document.getElementById(
     'billFormCard'
   ).classList.remove(
     'bill-editing'
   );
-
 
   clearInputs([
     'billName',
@@ -2410,9 +2398,7 @@ function cancelBillEdit(){
 }
 
 
-/* =========================
-   DELETE
-========================= */
+/* DELETE */
 
 function deleteItem(type,id){
 
@@ -2423,12 +2409,10 @@ function deleteItem(type,id){
   )
     return;
 
-
   appData[type] =
     appData[type].filter(
       x=>x.id !== id
     );
-
 
   saveData();
 
@@ -2437,9 +2421,7 @@ function deleteItem(type,id){
 }
 
 
-/* =========================
-   MARK PAID
-========================= */
+/* MARK PAID */
 
 function markBillPaid(id){
 
@@ -2448,19 +2430,22 @@ function markBillPaid(id){
       b=>b.id === id
     );
 
-
   if(!bill)
     return;
-
 
   bill.status = 'Paid';
 
 
   /*
-    Immediately create ONLY the next recurring bill.
+    Immediately create ONLY the next
+    recurring occurrence.
   */
 
-  generateNextRecurringBill(bill);
+  if(bill.recurring){
+
+    generateNextRecurringBill(bill);
+
+  }
 
 
   saveData();
@@ -2470,9 +2455,7 @@ function markBillPaid(id){
 }
 
 
-/* =========================
-   MARK UNPAID
-========================= */
+/* MARK UNPAID */
 
 function markBillUnpaid(id){
 
@@ -2481,13 +2464,10 @@ function markBillUnpaid(id){
       b=>b.id === id
     );
 
-
   if(!bill)
     return;
 
-
   bill.status = 'Unpaid';
-
 
   saveData();
 
@@ -2496,19 +2476,16 @@ function markBillUnpaid(id){
 }
 
 
-/* =========================
-   CREATE NEXT RECURRING BILL
-========================= */
+/*
+  CREATE ONLY ONE NEXT RECURRING BILL.
+
+  It does not create missed months.
+*/
 
 function generateNextRecurringBill(bill){
 
-  if(!bill)
-    return false;
-
-
   if(!bill.recurring)
     return false;
-
 
   if(bill.status !== 'Paid')
     return false;
@@ -2527,10 +2504,6 @@ function generateNextRecurringBill(bill){
     );
 
 
-  if(!family.length)
-    return false;
-
-
   const sorted =
     [...family].sort(
       (a,b)=>
@@ -2544,14 +2517,14 @@ function generateNextRecurringBill(bill){
     sorted[0];
 
 
-  /*
-    Only the latest occurrence can create
-    the next occurrence.
-  */
-
   if(!latest)
     return false;
 
+
+  /*
+    Only the latest bill can generate
+    the next one.
+  */
 
   if(latest.id !== bill.id)
     return false;
@@ -2559,7 +2532,6 @@ function generateNextRecurringBill(bill){
 
   const frequency =
     bill.frequency ||
-    latest.frequency ||
     'Monthly';
 
 
@@ -2568,10 +2540,6 @@ function generateNextRecurringBill(bill){
       bill.dueDate,
       frequency
     );
-
-
-  if(nextDate === bill.dueDate)
-    return false;
 
 
   if(
@@ -2588,7 +2556,7 @@ function generateNextRecurringBill(bill){
   const exists =
     appData.bills.some(b=>
       (b.parentRecurringId || b.id)
-        === familyId &&
+      === familyId &&
       b.dueDate === nextDate
     );
 
@@ -2616,27 +2584,35 @@ function generateNextRecurringBill(bill){
   };
 
 
-  appData.bills.push(newBill);
+  appData.bills.push(
+    newBill
+  );
+
 
   return true;
 
 }
 
 
-/* =========================
-   RECURRING CHECK
-========================= */
+/*
+  MANUAL RECURRING CHECK
 
-function generateRecurringBills(manualRun=false){
+  Only creates the next occurrence
+  when the latest recurring bill is Paid.
+
+  It NEVER creates all missed months.
+*/
+
+function generateRecurringBills(
+  manualRun=false
+){
 
   let created = 0;
 
 
   /*
-    Look at recurring families instead of blindly
-    generating bills.
-
-    This prevents missed months from being created.
+    Every recurring series is identified
+    by its family ID.
   */
 
   const familyIds = [];
@@ -2650,69 +2626,78 @@ function generateRecurringBills(manualRun=false){
         b.parentRecurringId ||
         b.id;
 
+      if(
+        !familyIds.includes(
+          familyId
+        )
+      ){
 
-      if(!familyIds.includes(familyId))
-        familyIds.push(familyId);
+        familyIds.push(
+          familyId
+        );
+
+      }
 
     });
 
 
-  familyIds.forEach(familyId=>{
+  familyIds.forEach(
+    familyId=>{
 
-    const family =
-      appData.bills
-        .filter(b=>
-          b.recurring &&
-          (b.parentRecurringId || b.id)
+      const family =
+        appData.bills
+          .filter(b=>
+            b.recurring &&
+            (b.parentRecurringId || b.id)
             === familyId
+          );
+
+
+      if(!family.length)
+        return;
+
+
+      const sorted =
+        [...family].sort(
+          (a,b)=>
+            b.dueDate.localeCompare(
+              a.dueDate
+            )
         );
 
 
-    if(!family.length)
-      return;
+      const latest =
+        sorted[0];
 
 
-    const sorted =
-      [...family].sort(
-        (a,b)=>
-          b.dueDate.localeCompare(
-            a.dueDate
-          )
-      );
+      /*
+        If latest is unpaid,
+        STOP.
+
+        No new bill is created.
+      */
+
+      if(
+        latest.status !== 'Paid'
+      ){
+
+        return;
+
+      }
 
 
-    const latest =
-      sorted[0];
+      if(
+        generateNextRecurringBill(
+          latest
+        )
+      ){
 
+        created++;
 
-    if(!latest)
-      return;
-
-
-    /*
-      If latest is unpaid, STOP.
-
-      This is the key rule.
-
-      No additional month/week/year is created
-      while the latest bill is unpaid.
-    */
-
-    if(latest.status !== 'Paid')
-      return;
-
-
-    if(
-      generateNextRecurringBill(
-        latest
-      )
-    ){
-
-      created++;
+      }
 
     }
-
-  });
+  );
 
 
   appData.recurringLog.lastRunDate =
@@ -2737,15 +2722,12 @@ function generateRecurringBills(manualRun=false){
 }
 
 
-/* =========================
-   DAYS
-========================= */
+/* DAYS */
 
 function daysUntil(dateStr){
 
   if(!dateStr)
     return 999999;
-
 
   const today =
     new Date(
@@ -2753,13 +2735,11 @@ function daysUntil(dateStr){
       'T00:00:00'
     );
 
-
   const d =
     new Date(
       dateStr +
       'T00:00:00'
     );
-
 
   return Math.ceil(
     (d - today) /
@@ -2769,9 +2749,7 @@ function daysUntil(dateStr){
 }
 
 
-/* =========================
-   STATUS
-========================= */
+/* STATUS */
 
 function getStatusBadge(
   status,
@@ -2788,10 +2766,8 @@ function getStatusBadge(
 
   }
 
-
   const days =
     daysUntil(dueDate);
-
 
   if(days < 0){
 
@@ -2803,7 +2779,6 @@ function getStatusBadge(
 
   }
 
-
   if(days <= 7){
 
     return `
@@ -2814,7 +2789,6 @@ function getStatusBadge(
 
   }
 
-
   return `
     <span class="badge unpaid">
       Unpaid
@@ -2824,9 +2798,7 @@ function getStatusBadge(
 }
 
 
-/* =========================
-   RECURRING TEXT
-========================= */
+/* RECURRING TEXT */
 
 function recurringText(b){
 
@@ -2846,9 +2818,7 @@ function recurringText(b){
 }
 
 
-/* =========================
-   INCOME RENDER
-========================= */
+/* INCOME RENDER */
 
 function renderIncome(){
 
@@ -2857,9 +2827,7 @@ function renderIncome(){
       'incomeTable'
     );
 
-
   tbody.innerHTML = '';
-
 
   if(!appData.income.length){
 
@@ -2875,7 +2843,6 @@ function renderIncome(){
     return;
 
   }
-
 
   appData.income.forEach(item=>{
 
@@ -2933,9 +2900,7 @@ function renderIncome(){
 }
 
 
-/* =========================
-   EXPENSE RENDER
-========================= */
+/* EXPENSE RENDER */
 
 function renderExpenses(){
 
@@ -2944,9 +2909,7 @@ function renderExpenses(){
       'expensesTable'
     );
 
-
   tbody.innerHTML = '';
-
 
   if(!appData.expenses.length){
 
@@ -2962,7 +2925,6 @@ function renderExpenses(){
     return;
 
   }
-
 
   appData.expenses.forEach(item=>{
 
@@ -3020,9 +2982,7 @@ function renderExpenses(){
 }
 
 
-/* =========================
-   BILLS RENDER
-========================= */
+/* BILLS RENDER */
 
 function renderBills(){
 
@@ -3031,25 +2991,15 @@ function renderBills(){
       'billsTable'
     );
 
-
   tbody.innerHTML = '';
-
 
   const sorted =
     [...appData.bills].sort(
-      (a,b)=>{
-
-        const aDate =
-          a.dueDate || '9999-12-31';
-
-        const bDate =
-          b.dueDate || '9999-12-31';
-
-        return aDate.localeCompare(bDate);
-
-      }
+      (a,b)=>
+        a.dueDate.localeCompare(
+          b.dueDate
+        )
     );
-
 
   if(!sorted.length){
 
@@ -3065,7 +3015,6 @@ function renderBills(){
     return;
 
   }
-
 
   sorted.forEach(b=>{
 
@@ -3144,7 +3093,6 @@ function renderBills(){
               `
             }
 
-
             <button
               class="small edit"
               onclick="editBill(
@@ -3152,7 +3100,6 @@ function renderBills(){
               )">
               Edit
             </button>
-
 
             <button
               class="small danger"
@@ -3176,9 +3123,7 @@ function renderBills(){
 }
 
 
-/* =========================
-   RECEIPTS RENDER
-========================= */
+/* RECEIPTS RENDER */
 
 function renderReceipts(){
 
@@ -3187,9 +3132,7 @@ function renderReceipts(){
       'receiptsTable'
     );
 
-
   tbody.innerHTML = '';
-
 
   if(!appData.receipts.length){
 
@@ -3205,7 +3148,6 @@ function renderReceipts(){
     return;
 
   }
-
 
   appData.receipts.forEach(item=>{
 
@@ -3263,9 +3205,7 @@ function renderReceipts(){
 }
 
 
-/* =========================
-   DASHBOARD
-========================= */
+/* DASHBOARD */
 
 function renderDashboard(){
 
@@ -3324,12 +3264,6 @@ function renderDashboard(){
 
     });
 
-
-  /*
-    CURRENT/UPCOMING ONLY.
-
-    Old overdue bills are NOT shown here.
-  */
 
   const upcoming =
     unpaidBills.filter(b=>
@@ -3395,7 +3329,6 @@ function renderDashboard(){
     document.getElementById(
       'dashboardOverdueTable'
     );
-
 
   overdueTable.innerHTML = '';
 
@@ -3473,7 +3406,6 @@ function renderDashboard(){
       'dashboardUpcomingTable'
     );
 
-
   upcomingTable.innerHTML = '';
 
 
@@ -3492,7 +3424,7 @@ function renderDashboard(){
       <tr>
         <td colspan="5"
           class="empty-message">
-          🎉 No current or upcoming unpaid bills.
+          🎉 No upcoming unpaid bills.
         </td>
       </tr>
     `;
@@ -3545,9 +3477,7 @@ function renderDashboard(){
 }
 
 
-/* =========================
-   TAX SUMMARY
-========================= */
+/* TAX SUMMARY */
 
 function renderTaxSummary(){
 
@@ -3560,7 +3490,6 @@ function renderTaxSummary(){
       e.category ||
       'Other';
 
-
     categories[cat] =
       (categories[cat] || 0) +
       Number(e.amount || 0);
@@ -3572,7 +3501,6 @@ function renderTaxSummary(){
     document.getElementById(
       'taxCategoryGrid'
     );
-
 
   grid.innerHTML = '';
 
@@ -3659,9 +3587,7 @@ function renderTaxSummary(){
 }
 
 
-/* =========================
-   CHECKLIST
-========================= */
+/* CHECKLIST */
 
 function renderChecklist(){
 
@@ -3669,7 +3595,6 @@ function renderChecklist(){
     document.getElementById(
       'checklistBox'
     );
-
 
   box.innerHTML = '';
 
@@ -3717,7 +3642,6 @@ function toggleChecklist(index){
   appData.checklist[index].done =
     !appData.checklist[index].done;
 
-
   saveData();
 
   renderChecklist();
@@ -3725,9 +3649,7 @@ function toggleChecklist(index){
 }
 
 
-/* =========================
-   EXPORT
-========================= */
+/* EXPORT */
 
 function exportBackup(){
 
@@ -3770,15 +3692,12 @@ function exportBackup(){
 }
 
 
-/* =========================
-   IMPORT
-========================= */
+/* IMPORT */
 
 function importBackup(event){
 
   const file =
     event.target.files[0];
-
 
   if(!file)
     return;
@@ -3868,14 +3787,11 @@ function importBackup(event){
             )
               b.recurring = false;
 
-
             if(!b.frequency)
               b.frequency = '';
 
-
             if(!b.recurringEndDate)
               b.recurringEndDate = '';
-
 
             if(
               typeof b.generatedFromRecurring !==
@@ -3883,6 +3799,11 @@ function importBackup(event){
             )
               b.generatedFromRecurring = false;
 
+            if(
+              !b.parentRecurringId &&
+              b.recurring
+            )
+              b.parentRecurringId = b.id;
 
             if(
               typeof b.lastGeneratedDate !==
@@ -3890,57 +3811,29 @@ function importBackup(event){
             )
               b.lastGeneratedDate = '';
 
-
-            if(
-              !b.parentRecurringId &&
-              b.recurring
-            )
-              b.parentRecurringId = b.id;
-
           });
 
 
           /*
-            If this backup was made by the old
-            version, allow the one-time cleanup
-            to run.
-
-            If it was already cleaned, keep it
-            cleaned.
+            Imported backups are allowed to run
+            through the same one-time cleanup.
           */
 
-          if(
-            data &&
-            data.legacyOverdueCleanupDone === true
-          ){
-
-            localStorage.setItem(
-              OLD_OVERDUE_CLEANUP_KEY,
-              'yes'
-            );
-
-          }
+          localStorage.removeItem(
+            OVERDUE_CLEANUP_KEY
+          );
 
 
           saveData();
 
 
           /*
-            Run cleanup only if this backup has
-            not already been cleaned.
+            Run cleanup on imported data too.
           */
 
           cleanupOldOverdueBills();
 
-
           renderAll();
-
-
-          /*
-            Check recurring bills after import.
-          */
-
-          generateRecurringBills(false);
 
 
           alert(
@@ -3950,8 +3843,6 @@ function importBackup(event){
         }
 
       }catch(err){
-
-        console.error(err);
 
         alert(
           'Invalid backup file.'
@@ -3969,9 +3860,7 @@ function importBackup(event){
 }
 
 
-/* =========================
-   CLEAR ALL DATA
-========================= */
+/* CLEAR ALL */
 
 function clearAllData(){
 
@@ -3989,16 +3878,16 @@ function clearAllData(){
 
 
   /*
-    The old-data migration is considered
-    complete after a full reset.
+    The old overdue cleanup is considered
+    completed after this point.
 
-    This prevents newly entered old-dated bills
-    from being automatically deleted.
+    A brand-new database should NOT delete
+    anything the user manually enters later.
   */
 
   localStorage.setItem(
-    OLD_OVERDUE_CLEANUP_KEY,
-    'yes'
+    OVERDUE_CLEANUP_KEY,
+    OVERDUE_CLEANUP_VERSION
   );
 
 
@@ -4063,6 +3952,21 @@ function clearAllData(){
   };
 
 
+  const notice =
+    document.getElementById(
+      'cleanupNotice'
+    );
+
+  if(notice){
+
+    notice.style.display =
+      'none';
+
+    notice.innerHTML = '';
+
+  }
+
+
   saveData();
 
   renderAll();
@@ -4070,9 +3974,7 @@ function clearAllData(){
 }
 
 
-/* =========================
-   ESCAPE HTML
-========================= */
+/* ESCAPE HTML */
 
 function escapeHtml(str){
 
@@ -4108,9 +4010,7 @@ function escapeHtml(str){
 }
 
 
-/* =========================
-   RENDER EVERYTHING
-========================= */
+/* RENDER EVERYTHING */
 
 function renderAll(){
 
@@ -4133,39 +4033,34 @@ function renderAll(){
 }
 
 
-/* =========================
-   START APP
-========================= */
+/* START APP */
 
 loadData();
-
-
-/*
-  FIRST:
-  Remove the old past-due unpaid bills.
-  This happens ONLY ONCE.
-*/
-
-cleanupOldOverdueBills();
-
 
 setDefaultDates();
 
 toggleRecurringFields();
 
 
+/*
+  IMPORTANT:
+
+  This runs BEFORE the dashboard is rendered,
+  so the old overdue bills disappear immediately.
+
+  Version 2 runs once.
+*/
+
+cleanupOldOverdueBills();
+
+
 renderAll();
 
 
 /*
-  SECOND:
-  Check recurring bills.
+  Check recurring bills after cleanup.
 
-  It will NOT create missed months.
-
-  It only creates the next occurrence
-  when the latest recurring occurrence
-  has been paid.
+  This will NOT create missed months.
 */
 
 generateRecurringBills(false);
